@@ -11,6 +11,7 @@ option(ENABLE_FRONTEND_API "Use obs-frontend-api for UI functionality" ON)
 option(ENABLE_QT "Use Qt functionality" OFF)
 
 option(BUILD_OBS_PLUGIN "Build as OBS plugin" ON)
+option(BUILD_EVALUATION "Build the offline evaluation tool" OFF)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -48,12 +49,15 @@ else()
   add_executable(${CMAKE_PROJECT_NAME})
 endif()
 
+add_library(streammyheart_core STATIC)
+
 find_package(libobs REQUIRED)
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs)
+target_link_libraries(streammyheart_core PUBLIC OBS::libobs)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs streammyheart_core)
 
 find_package(Eigen3 REQUIRED)
 include_directories(${EIGEN3_INCLUDE_DIR})
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Eigen3::Eigen)
+target_link_libraries(streammyheart_core PUBLIC Eigen3::Eigen)
 
 if(UNIX)
   message("Configuring OpenCV for MacOS and Linux")
@@ -73,12 +77,12 @@ endif()
 
 include_directories(${OpenCV_INCLUDE_DIR})
 link_directories(${OpenCV_LIBRARIES})
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE ${OpenCV_LIBRARIES})
+target_link_libraries(streammyheart_core PUBLIC ${OpenCV_LIBRARIES})
 
 # Apply compiler options to ignore Dlib-specific warnings
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "AppleClang")
   target_compile_options(
-    ${CMAKE_PROJECT_NAME}
+    streammyheart_core
     PRIVATE
       -Wno-newline-eof # Ignore missing newline at end of file
       -Wno-unused-but-set-variable # Ignore unused variables
@@ -91,7 +95,6 @@ endif()
 if(UNIX)
   include_directories(${CMAKE_SOURCE_DIR}/3rdparty/dlib)
   link_directories(${CMAKE_SOURCE_DIR}/3rdparty/dlib/build)
-  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE dlib)
 
   # Set paths for Dlib
   set(DLIB_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/3rdparty/dlib-19.24.6)
@@ -104,8 +107,7 @@ if(UNIX)
   add_library(libdlib STATIC IMPORTED)
   set_target_properties(libdlib PROPERTIES IMPORTED_LOCATION ${DLIB_LIB_DIR}/libdlib.a)
 
-  # Link your OBS plugin with Dlib
-  target_link_libraries(${PROJECT_NAME} PRIVATE ${DLIB_LIB_DIR}/libdlib.a)
+  target_link_libraries(streammyheart_core PUBLIC ${DLIB_LIB_DIR}/libdlib.a)
   # set(dlib_STATIC ON)
   # set(dlib_DIR ${CMAKE_SOURCE_DIR}/binary/dlib-19.24.6-macos/lib/cmake/dlib)
   # find_package(dlib CONFIG REQUIRED)
@@ -129,7 +131,7 @@ elseif(WIN32)
     message("dlib_LIBRARIES:${dlib_LIBRARIES}")
   endif()
 
-  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE dlib::dlib)
+  target_link_libraries(streammyheart_core PUBLIC dlib::dlib)
 endif()
 
 if(ENABLE_FRONTEND_API)
@@ -151,23 +153,32 @@ if(ENABLE_QT)
 endif()
 
 target_sources(
-  ${CMAKE_PROJECT_NAME}
+  streammyheart_core
   PRIVATE
     src/algorithm/heart_rate_algorithm.cpp
     src/algorithm/face_detection/face_detection.cpp
     src/algorithm/face_detection/opencv_haarcascade.cpp
     src/algorithm/face_detection/opencv_dlib_68_landmarks_face_tracker.cpp
     src/core/heart_rate_pipeline.cpp
-    src/graph_source.cpp
-    src/graph_source_info.c
     src/algorithm/filtering/pre_filters.cpp
     src/algorithm/filtering/post_filters.cpp
     src/algorithm/filtering/filter_util.cpp
+)
+
+target_sources(
+  ${CMAKE_PROJECT_NAME}
+  PRIVATE
+    src/graph_source.cpp
+    src/graph_source_info.c
     src/plugin-main.cpp
     src/heart_rate_source.cpp
     src/heart_rate_source_info.c
     src/obs_utils.cpp
-    eval/run_evaluation.cpp
 )
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
+
+if(BUILD_EVALUATION)
+  add_executable(${CMAKE_PROJECT_NAME}_eval eval/run_evaluation.cpp)
+  target_link_libraries(${CMAKE_PROJECT_NAME}_eval PRIVATE streammyheart_core)
+endif()
