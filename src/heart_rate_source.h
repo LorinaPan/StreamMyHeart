@@ -8,6 +8,7 @@
 #include <mutex>
 #include "algorithm/face_detection/face_detection.h"
 #include "core/heart_rate_pipeline.h"
+#include "frame_capture.h"
 #else
 #include <stdbool.h>
 #endif
@@ -27,17 +28,13 @@ extern bool enableTiming;
 
 struct heartRateSource {
 	obs_source_t *source;
-	gs_texrender_t *texrender;
-	gs_stagesurf_t *stagesurface;
 	gs_effect_t *testing;
 #ifdef __cplusplus
-	std::shared_ptr<struct input_BGRA_data> bgraData;
-	std::mutex bgraDataMutex;
+	FilterFrameCapture frameCapture;
 	std::unique_ptr<FaceDetection> faceDetection;
 	HeartRatePipeline pipeline;
 #else
-	struct input_BGRA_data *bgraData;
-	void *bgraDataMutex; // Placeholder for C compatibility
+	void *frameCapture;
 	void *faceDetection;
 	void *pipeline;
 #endif

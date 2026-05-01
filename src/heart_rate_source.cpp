@@ -45,7 +45,7 @@ void *heartRateSourceCreate(obs_data_t *settings, obs_source_t *source)
 	}
 	obs_leave_graphics();
 
-	hrs->texrender = gs_texrender_create(GS_BGRA, GS_ZS_NONE);
+	hrs->frameCapture.initialize();
 	MonitorRuntimeConfig config = readMonitorRuntimeConfig(settings);
 	reconcileDisplayScene(config.displayScene);
 
@@ -65,10 +65,7 @@ void heartRateSourceDestroy(void *data)
 	if (hrs) {
 		hrs->isDisabled = true;
 		obs_enter_graphics();
-		gs_texrender_destroy(hrs->texrender);
-		if (hrs->stagesurface) {
-			gs_stagesurface_destroy(hrs->stagesurface);
-		}
+		hrs->frameCapture.destroy();
 		gs_effect_destroy(hrs->testing);
 		obs_leave_graphics();
 		hrs->~heartRateSource();
@@ -249,152 +246,14 @@ void heartRateSourceTick(void *data, float seconds)
 	}
 }
 
-static bool getBGRAFromStageSurface(struct heartRateSource *hrs)
-{
-	uint32_t width;
-	uint32_t height;
-
-	// Check if the source is enabled
-	if (!obs_source_enabled(hrs->source)) {
-		return false;
-	}
-
-	// Retrieve the target source of the filter
-	obs_source_t *target;
-	if (hrs->source) {
-		target = obs_filter_get_target(hrs->source);
-	} else {
-		return false;
-	}
-	if (!target) {
-		return false;
-	}
-
-	// Retrieve the base dimensions of the target source
-	width = obs_source_get_base_width(target);
-	height = obs_source_get_base_height(target);
-	if (width == 0 || height == 0) {
-		return false;
-	}
-
-	obs_enter_graphics();
-
-	// Resets the texture renderer and begins rendering with the specified width and height
-	gs_texrender_reset(hrs->texrender);
-	if (!hrs->texrender) {
-		obs_leave_graphics();
-		return false;
-	}
-	if (!gs_texrender_begin(hrs->texrender, width, height)) {
-		obs_leave_graphics();
-		return false;
-	}
-
-	// Clear up and set up rendering
-	// - Clears the rendering surface with a zeroed background
-	// - Sets up the orthographic projection matrix
-	// - Pushes the blend state and sets the blend function
-	// - Renders the video of the target source
-	// - Pops the blend state and ends the texture rendering
-
-	// Declare a vec4 structure to hold the background colour
-	struct vec4 background; // two component vector struct (x, y, z, w)
-
-	// Set the background colour to zero (black)
-	vec4_zero(&background); // zeroes a vector
-
-	// Clear the rendering surface from the previous frame processing, with the specified background colour. The GS_CLEAR_COLOR flag indicates that the colour buffer should be cleared. This sets the colour to &background colour
-	gs_clear(GS_CLEAR_COLOR, &background, 0.0f,
-		 0); // Clears colour/depth/stencil buffers
-
-	// Sets up an orthographic projection matrix. This matrix defines a 2D rendering space where objects are rendered without perspective distortion
-	// Parameters:
-	// - 0.0f: The left coordinate of the projection
-	// static_cast<float>(width): The rigCan youht coordinate of the projection, set to the width of the target source
-	// 0.0f: The bottom coordinate of the projection.
-	// static_cast<float>(height): The top coordinate of the projection, set to the height of the target source
-	// -100.0f: The near clipping plane. The near clipping plane is the closest plane to the camera. Objects closer to the camera than this plane are clipped (not rendered). It helps to avoid rendering artifacts and improves depth precision by discarding objects that are too close to the camera
-	// 100.0f: The far clipping plane. The far clipping plane is the farthest plane from the camera. Objects farther from the camera than this plane are clipped (not rendered).It helps to limit the rendering distance and manage depth buffer precision by discarding objects that are too far away
-	gs_ortho(0.0f, static_cast<float>(width), 0.0f, static_cast<float>(height), -100.0f, 100.0f);
-
-	// This function saves the current blend state onto a stack. The blend state includes settings that control how colours from different sources are combined during rendering. By pushing the current blend state, you can make temporary changes to the blend settings and later restore the original settings by popping the blend state from the stack
-	gs_blend_state_push();
-
-	// This function sets the blend function for rendering. The blend function determines how the source (the new pixels being drawn) and the destination (the existing pixels in the framebuffer) colours are combined
-	// Parameters:
-	// - GS_BLEND_ONE: The source colour is used as-is. This means the source colour is multiplied by 1
-	// - GS_BLEND_ZERO: The destination colour is ignored. This means the destination colour is multiplied by 0
-	// Effect: The combination of GS_BLEND_ONE and GS_BLEND_ZERO results in the source colour completely replacing the destination colour. This is equivalent to disabling blending, where the new pixels overwrite the existing pixels
-	gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
-
-	// This function renders the video frame of the target source onto the current rendering surface
-	obs_source_video_render(target);
-
-	// This function restores the previous blend state from the stack. The blend state that was saved by gs_blend_state_push is now restored. By popping the blend state, you undo the temporary changes made to the blend settings, ensuring that subsequent rendering operations use the original blend settings
-	gs_blend_state_pop();
-
-	// This function ends the texture rendering process. It finalizes the rendering operations and makes the rendered texture available for further processing. This function completes the rendering process, ensuring that the rendered texture is properly finalised and can be used for subsequent operations, such as extracting pixel data or further processing
-	gs_texrender_end(hrs->texrender);
-
-	// Retrieve the old existing stage surface
-	if (hrs->stagesurface) {
-		uint32_t stagesurfWidth = gs_stagesurface_get_width(hrs->stagesurface);
-		uint32_t stagesurfHeight = gs_stagesurface_get_height(hrs->stagesurface);
-		// If it still matches the new width and height, reuse it
-		if (stagesurfWidth != width || stagesurfHeight != height) {
-			// Destroy the old stage surface
-			gs_stagesurface_destroy(hrs->stagesurface);
-			hrs->stagesurface = nullptr;
-		}
-	}
-
-	// Create a new stage surface if necessary
-	if (!hrs->stagesurface) {
-		hrs->stagesurface = gs_stagesurface_create(width, height, GS_BGRA);
-	}
-
-	// Use gs_stage_texture to stage the texture from the texture renderer (hrs->texrender) to the stage surface (hrs->stagesurface). This operation transfers the rendered texture to the stage surface for further processing
-	gs_stage_texture(hrs->stagesurface, gs_texrender_get_texture(hrs->texrender));
-
-	// Use gs_stagesurface_map to map the stage surface and retrieve the video data and line size. The video_data pointer will point to the BGRA data, and linesize will indicate the number of bytes per line
-	uint8_t *video_data; // A pointer to the memory location where the BGRA data will be accessible
-	uint32_t linesize;   // The number of bytes per line (or row) of the image data
-	// The gs_stagesurface_map function creates a mapping between the GPU memory and the CPU memory. This allows the CPU to access the pixel data directly from the GPU memory
-	if (!gs_stagesurface_map(hrs->stagesurface, &video_data, &linesize)) {
-		obs_leave_graphics();
-		return false;
-	}
-
-	{
-		std::lock_guard<std::mutex> lock(hrs->bgraDataMutex);
-		std::shared_ptr<input_BGRA_data> bgraData(
-			static_cast<input_BGRA_data *>(bzalloc(sizeof(input_BGRA_data))), [](input_BGRA_data *p) {
-				if (p)
-					bfree(p);
-			});
-
-		bgraData->width = width;
-		bgraData->height = height;
-		bgraData->linesize = linesize;
-		bgraData->data = video_data;
-		hrs->bgraData = bgraData;
-	}
-
-	// Use gs_stagesurface_unmap to unmap the stage surface, releasing the mapped memory.
-	gs_stagesurface_unmap(hrs->stagesurface);
-
-	obs_leave_graphics();
-	return true;
-}
-
 static gs_texture_t *drawRectangle(struct heartRateSource *hrs, uint32_t width, uint32_t height,
 				   std::vector<struct vec4> &faceCoordinates)
 {
 	gs_texture_t *blurredTexture = gs_texture_create(width, height, GS_BGRA, 1, nullptr, 0);
-	gs_copy_texture(blurredTexture, gs_texrender_get_texture(hrs->texrender));
+	gs_copy_texture(blurredTexture, gs_texrender_get_texture(hrs->frameCapture.texrender()));
 
-	gs_texrender_reset(hrs->texrender);
-	if (!gs_texrender_begin(hrs->texrender, width, height)) {
+	gs_texrender_reset(hrs->frameCapture.texrender());
+	if (!gs_texrender_begin(hrs->frameCapture.texrender(), width, height)) {
 		obs_log(LOG_INFO, "Could not open background texrender!");
 		return blurredTexture;
 	}
@@ -416,8 +275,8 @@ static gs_texture_t *drawRectangle(struct heartRateSource *hrs, uint32_t width, 
 	gs_blend_function(GS_BLEND_SRCALPHA, GS_BLEND_INVSRCALPHA);
 
 	gs_blend_state_pop();
-	gs_texrender_end(hrs->texrender);
-	gs_copy_texture(blurredTexture, gs_texrender_get_texture(hrs->texrender));
+	gs_texrender_end(hrs->frameCapture.texrender());
+	gs_copy_texture(blurredTexture, gs_texrender_get_texture(hrs->frameCapture.texrender()));
 	return blurredTexture;
 }
 
@@ -454,7 +313,7 @@ void heartRateSourceRender(void *data, gs_effect_t *effect)
 		return;
 	}
 
-	if (!getBGRAFromStageSurface(hrs)) {
+	if (!hrs->frameCapture.capture(hrs->source)) {
 		skipVideoFilterIfSafe(hrs->source);
 		return;
 	}
@@ -471,6 +330,7 @@ void heartRateSourceRender(void *data, gs_effect_t *effect)
 
 	std::vector<struct vec4> faceCoordinates;
 	std::vector<double_t> avg;
+	std::shared_ptr<input_BGRA_data> bgraData = hrs->frameCapture.sample();
 
 	// User has changed face detection algorithm, recreate the face detection object
 	if ((config.faceDetection.algorithm == FaceDetectionAlgorithm::HAAR_CASCADE &&
@@ -485,7 +345,7 @@ void heartRateSourceRender(void *data, gs_effect_t *effect)
 		if (enableTiming) {
 			start_face_detection = os_gettime_ns();
 		}
-		avg = hrs->faceDetection->detectFace(hrs->bgraData, faceCoordinates,
+		avg = hrs->faceDetection->detectFace(bgraData, faceCoordinates,
 						     config.faceDetection.enableDebugBoxes,
 						     config.faceDetection.enableTracker,
 						     config.faceDetection.frameUpdateInterval);
@@ -539,7 +399,7 @@ void heartRateSourceRender(void *data, gs_effect_t *effect)
 
 	if (config.faceDetection.enableDebugBoxes) {
 		gs_texture_t *testingTexture =
-			drawRectangle(hrs, hrs->bgraData->width, hrs->bgraData->height, faceCoordinates);
+			drawRectangle(hrs, bgraData->width, bgraData->height, faceCoordinates);
 
 		if (!obs_source_process_filter_begin(hrs->source, GS_BGRA, OBS_ALLOW_DIRECT_RENDERING)) {
 			skipVideoFilterIfSafe(hrs->source);
@@ -552,8 +412,8 @@ void heartRateSourceRender(void *data, gs_effect_t *effect)
 		gs_reset_blend_state();
 
 		if (hrs->source) {
-			obs_source_process_filter_tech_end(hrs->source, hrs->testing, hrs->bgraData->width,
-							   hrs->bgraData->height, "Draw");
+			obs_source_process_filter_tech_end(hrs->source, hrs->testing, bgraData->width,
+							   bgraData->height, "Draw");
 		}
 
 		gs_blend_state_pop();

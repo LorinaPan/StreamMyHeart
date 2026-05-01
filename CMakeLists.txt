@@ -172,6 +172,7 @@ target_sources(
     src/graph_source.cpp
     src/graph_source_info.c
     src/display_scene.cpp
+    src/frame_capture.cpp
     src/plugin-main.cpp
     src/plugin_config.cpp
     src/heart_rate_source.cpp
