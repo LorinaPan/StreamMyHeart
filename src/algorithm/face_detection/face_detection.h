@@ -1,6 +1,8 @@
 #ifndef FACE_DETECTION_H
 #define FACE_DETECTION_H
 
+#include "../../core/frame_data.h"
+
 #include <vector>
 #include <dlib/image_processing.h>
 #include <dlib/image_processing/frontal_face_detector.h>

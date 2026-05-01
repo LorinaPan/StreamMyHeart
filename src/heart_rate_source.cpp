@@ -1,7 +1,7 @@
 #include "algorithm/face_detection/face_detection.h"
 #include "algorithm/face_detection/opencv_haarcascade.h"
 #include "algorithm/face_detection/opencv_dlib_68_landmarks_face_tracker.h"
-#include "algorithm/heart_rate_algorithm.h"
+#include "core/heart_rate_pipeline.h"
 #include "heart_rate_source.h"
 #include "plugin-support.h"
 
@@ -19,7 +19,6 @@
 #include "obs_utils.h"
 #include "heart_rate_source.h"
 
-MovingAvg movingAvg;
 bool enableTiming = false;
 
 const char *getHeartRateSourceName(void *)
@@ -268,6 +267,19 @@ static void createOBSHeartDisplaySourceIfNeeded(obs_data_t *settings)
 	obs_source_release(sceneAsSource);
 }
 
+static HeartRatePipelineConfig readPipelineConfig(obs_data_t *settings)
+{
+	HeartRatePipelineConfig config;
+	config.fps = static_cast<int>(obs_data_get_int(settings, "fps"));
+	config.ppgAlgorithm =
+		static_cast<PpgAlgorithmMethod>(obs_data_get_int(settings, "ppg algorithm"));
+	config.preFiltering =
+		static_cast<PreFilteringMethod>(obs_data_get_int(settings, "pre-filtering method"));
+	config.postFiltering = obs_data_get_bool(settings, "post-filtering") ? PostFilteringMethod::BANDPASS
+									 : PostFilteringMethod::NONE;
+	return config;
+}
+
 // Create function
 void *heartRateSourceCreate(obs_data_t *settings, obs_source_t *source)
 {
@@ -275,7 +287,6 @@ void *heartRateSourceCreate(obs_data_t *settings, obs_source_t *source)
 	struct heartRateSource *hrs = new (data) heartRateSource();
 
 	hrs->source = source;
-	hrs->currentPpgAlgorithm = obs_data_get_int(settings, "ppg algorithm");
 
 	obs_enter_graphics();
 	char *effectFile = obs_module_file("test.effect");
@@ -854,23 +865,13 @@ void heartRateSourceRender(void *data, gs_effect_t *effect)
 	int64_t fps = obs_data_get_int(hrsSettings, "fps");
 	double heartRate = -1.0;
 	bool noFaceDetected = false;
-	if (!(std::all_of(avg.begin(), avg.end(), [](double_t val) { return val == 0.0; }))) { // face detected
+	if (hasFaceSample(avg)) { // face detected
 		// Get the settings for calculating the heart rate
-		int64_t selectedPpgAlgorithm = obs_data_get_int(hrsSettings, "ppg algorithm");
-		int64_t selectedPreFiltering = obs_data_get_int(hrsSettings, "pre-filtering method");
-		bool enablePostFiltering = obs_data_get_bool(hrsSettings, "post-filtering");
-		int64_t selectedPostFiltering = enablePostFiltering ? 1 : 0;
-
-		// Check if the ppg algorithm has changed
-		if (selectedPpgAlgorithm != hrs->currentPpgAlgorithm) {
-			movingAvg = MovingAvg(); // Create a new instance of MovingAvg
-			hrs->currentPpgAlgorithm = selectedPpgAlgorithm;
-		}
+		HeartRatePipelineConfig pipelineConfig = readPipelineConfig(hrsSettings);
 
 		hrs->frameCount = 0; // reset frame count
 
-		heartRate = movingAvg.calculateHeartRate(avg, selectedPreFiltering, selectedPpgAlgorithm,
-							 selectedPostFiltering, true, fps);
+		heartRate = hrs->pipeline.update(avg, pipelineConfig);
 	} else { // no face detected
 		hrs->frameCount += 1;
 		if (hrs->frameCount >= fps) { // if no face detected more than 1 second

@@ -11,7 +11,6 @@
 #include <iostream>
 #include <stdexcept>
 
-#include "heart_rate_source.h"
 #include "face_detection.h"
 
 class HaarCascadeFaceDetection : public FaceDetection {

@@ -2,10 +2,12 @@
 #define HEART_RATE_SOURCE_H
 
 #include <obs-module.h>
+#include "core/frame_data.h"
 
 #ifdef __cplusplus
 #include <mutex>
 #include "algorithm/face_detection/face_detection.h"
+#include "core/heart_rate_pipeline.h"
 #else
 #include <stdbool.h>
 #endif
@@ -22,12 +24,6 @@ extern "C" {
 #define ECG_SOURCE_NAME obs_module_text("HeartRateECG")
 
 extern bool enableTiming;
-struct input_BGRA_data {
-	uint8_t *data;
-	uint32_t width;
-	uint32_t height;
-	uint32_t linesize;
-};
 
 struct heartRateSource {
 	obs_source_t *source;
@@ -38,12 +34,13 @@ struct heartRateSource {
 	std::shared_ptr<struct input_BGRA_data> bgraData;
 	std::mutex bgraDataMutex;
 	std::unique_ptr<FaceDetection> faceDetection;
+	HeartRatePipeline pipeline;
 #else
 	struct input_BGRA_data *bgraData;
 	void *bgraDataMutex; // Placeholder for C compatibility
 	void *faceDetection;
+	void *pipeline;
 #endif
-	int64_t currentPpgAlgorithm;
 	bool isDisabled;
 	int frameCount;
 };

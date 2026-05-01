@@ -1,22 +1,13 @@
 #ifndef HEART_RATE_ALGO_H
 #define HEART_RATE_ALGO_H
 
-#include "heart_rate_source.h"
-
-#include <cmath>
-#include <iostream>
-#include <vector>
-#include <obs.h>
 #include <Eigen/Dense>
-#include <vector>
-#include <fstream>
 #include <cmath>
 #include <complex>
-#include <algorithm>
-#include <cstdlib>
-#include <ctime>
-#include "heart_rate_source.h"
 #include <numeric>
+#include <vector>
+
+#include <obs.h>
 
 class MovingAvg {
 private:
@@ -40,9 +31,6 @@ private:
 	int framesSincePPG = 0;
 	int NUM_UPDATES = 10;
 	double prevHr;
-
-	std::vector<double_t> averageRGB(std::vector<std::vector<std::vector<uint8_t>>> rgb,
-					 std::vector<std::vector<bool>> skinKey = {});
 
 	void updateWindows(std::vector<double_t> frameAvg);
 

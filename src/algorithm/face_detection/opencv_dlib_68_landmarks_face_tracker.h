@@ -7,7 +7,6 @@
 #include <dlib/image_processing.h>
 #include <dlib/image_processing/correlation_tracker.h>
 
-#include "heart_rate_source.h"
 #include "face_detection.h"
 
 class DlibFaceDetection : public FaceDetection {

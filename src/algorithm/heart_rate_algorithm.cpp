@@ -1,52 +1,15 @@
 #include "heart_rate_algorithm.h"
-#include "plugin-support.h"
 #include "filtering/pre_filters.h"
 #include "filtering/post_filters.h"
-#include "heart_rate_source.h"
 
 #include <obs-module.h>
-#include <fstream>
-#include <string>
-#include <cstdlib>
 #include <cmath>
 #include <util/platform.h>
 
 using namespace std;
 using namespace Eigen;
-using FrameRGB = vector<vector<vector<uint8_t>>>;
 using Windows = vector<vector<vector<double_t>>>;
 using Window = vector<vector<double_t>>;
-
-// Calculating the average/mean RGB values of a frame
-vector<double_t> MovingAvg::averageRGB(FrameRGB rgb, vector<vector<bool>> skinKey)
-{
-	double sumR = 0.0, sumG = 0.0, sumB = 0.0;
-	double count = 0;
-
-	// Iterate through the frame pixels using the key
-	for (int i = 0; i < static_cast<int>(rgb.size()); ++i) {
-		for (int j = 0; j < static_cast<int>(rgb[0].size()); ++j) {
-			if (skinKey.empty()) {
-				sumR += rgb[i][j][0];
-				sumG += rgb[i][j][1];
-				sumB += rgb[i][j][2];
-				count++;
-			} else {
-				if (skinKey[i][j]) {
-					sumR += rgb[i][j][0];
-					sumG += rgb[i][j][1];
-					sumB += rgb[i][j][2];
-					count++;
-				}
-			}
-		}
-	}
-	if (count > 0) {
-		return {sumR / count, sumG / count, sumB / count};
-	}
-
-	return {0.0, 0.0, 0.0};
-}
 
 vector<double_t> green(Window windowsRGB)
 {
@@ -126,28 +89,6 @@ void MovingAvg::updateWindows(vector<double_t> frameAvg)
 	} else {
 		windows.back().push_back(frameAvg);
 	}
-}
-
-FrameRGB extractRGB(std::shared_ptr<struct input_BGRA_data> bgraData)
-{
-	uint8_t *data = bgraData->data;
-	uint32_t width = bgraData->width;
-	uint32_t height = bgraData->height;
-	uint32_t linesize = bgraData->linesize;
-
-	FrameRGB frameRGB(height, vector<vector<uint8_t>>(width));
-
-	for (uint32_t y = 0; y < height; ++y) {
-		for (uint32_t x = 0; x < width; ++x) {
-			uint8_t B = data[y * linesize + x * 4];
-			uint8_t G = data[y * linesize + x * 4 + 1];
-			uint8_t R = data[y * linesize + x * 4 + 2];
-
-			frameRGB[y][x] = {R, G, B};
-		}
-	}
-
-	return frameRGB;
 }
 
 double MovingAvg::welch(vector<double_t> bvps)
