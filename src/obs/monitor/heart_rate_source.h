@@ -6,6 +6,7 @@
 
 #ifdef __cplusplus
 #include <mutex>
+#include <string>
 #include "algorithm/face_detection/face_detection.h"
 #include "core/heart_rate_pipeline.h"
 #include "frame_capture.h"
@@ -26,6 +27,28 @@ extern "C" {
 
 extern bool enableTiming;
 
+#ifdef __cplusplus
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+struct PerfAccumulator {
+	uint64_t sampleCount = 0;
+	uint64_t totalNs = 0;
+	uint64_t maxNs = 0;
+};
+
+struct MonitorPerfStats {
+	bool wasEnabled = false;
+	uint64_t windowStartNs = 0;
+	uint64_t renderCount = 0;
+	uint64_t analysisCount = 0;
+	uint64_t noFaceCount = 0;
+	PerfAccumulator render;
+	PerfAccumulator capture;
+	PerfAccumulator faceDetection;
+	PerfAccumulator pipeline;
+};
+#endif
+#endif
+
 struct heartRateSource {
 	obs_source_t *source;
 	gs_effect_t *testing;
@@ -33,6 +56,9 @@ struct heartRateSource {
 	FilterFrameCapture frameCapture;
 	std::unique_ptr<FaceDetection> faceDetection;
 	HeartRatePipeline pipeline;
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+	MonitorPerfStats perfStats;
+#endif
 #else
 	void *frameCapture;
 	void *faceDetection;

@@ -9,6 +9,7 @@ project(${_name} VERSION ${_version})
 
 option(ENABLE_FRONTEND_API "Use obs-frontend-api for UI functionality" ON)
 option(ENABLE_QT "Use Qt functionality" OFF)
+option(ENABLE_DEBUG_FEATURES "Enable debug instrumentation and experimental toggles" OFF)
 
 option(BUILD_OBS_PLUGIN "Build as OBS plugin" ON)
 option(BUILD_EVALUATION "Build the offline evaluation tool" OFF)
@@ -199,6 +200,10 @@ target_sources(
     src/obs/monitor/heart_rate_source_info.c
     src/obs/runtime/obs_utils.cpp
 )
+
+if(ENABLE_DEBUG_FEATURES)
+  target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE STREAM_MY_HEART_ENABLE_DEBUG_FEATURES=1)
+endif()
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
 

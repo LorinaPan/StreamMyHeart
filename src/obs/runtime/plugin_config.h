@@ -41,6 +41,8 @@ struct FaceDetectionConfig {
 struct MonitorRuntimeConfig {
 	int fps = 30;
 	bool isDisabled = false;
+	bool enablePerfInstrumentation = false;
+	bool enableExperimentalAsyncAnalysis = false;
 	HeartRatePipelineConfig pipeline;
 	FaceDetectionConfig faceDetection;
 	DisplaySceneConfig displayScene;

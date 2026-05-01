@@ -15,10 +15,97 @@
 #include <graphics/graphics.h>
 #include <graphics/matrix4.h>
 #include <util/platform.h>
-#include <vector>
+#include <algorithm>
+#include <cmath>
 #include <sstream>
+#include <vector>
 
 bool enableTiming = false;
+
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+namespace {
+constexpr uint64_t kPerfLogIntervalNs = 1000000000ULL;
+
+void recordPerfSample(PerfAccumulator &accumulator, uint64_t durationNs)
+{
+	accumulator.sampleCount += 1;
+	accumulator.totalNs += durationNs;
+	accumulator.maxNs = std::max(accumulator.maxNs, durationNs);
+}
+
+double toMilliseconds(uint64_t durationNs)
+{
+	return static_cast<double>(durationNs) / 1000000.0;
+}
+
+void resetPerfStats(MonitorPerfStats &stats)
+{
+	stats.windowStartNs = 0;
+	stats.renderCount = 0;
+	stats.analysisCount = 0;
+	stats.noFaceCount = 0;
+	stats.render = {};
+	stats.capture = {};
+	stats.faceDetection = {};
+	stats.pipeline = {};
+}
+
+void maybeLogPerfStats(struct heartRateSource *hrs, const MonitorRuntimeConfig &config)
+{
+	if (!config.enablePerfInstrumentation) {
+		if (hrs->perfStats.wasEnabled) {
+			resetPerfStats(hrs->perfStats);
+			hrs->perfStats.wasEnabled = false;
+		}
+		return;
+	}
+
+	uint64_t nowNs = os_gettime_ns();
+	MonitorPerfStats &stats = hrs->perfStats;
+	if (stats.windowStartNs == 0) {
+		stats.windowStartNs = nowNs;
+		stats.wasEnabled = true;
+		return;
+	}
+
+	uint64_t elapsedNs = nowNs - stats.windowStartNs;
+	if (elapsedNs < kPerfLogIntervalNs) {
+		stats.wasEnabled = true;
+		return;
+	}
+
+	auto averageNs = [](const PerfAccumulator &accumulator) -> uint64_t {
+		if (accumulator.sampleCount == 0) {
+			return 0;
+		}
+		return accumulator.totalNs / accumulator.sampleCount;
+	};
+
+	double analysisHz = elapsedNs == 0 ? 0.0
+					   : (static_cast<double>(stats.analysisCount) * 1000000000.0) /
+						     static_cast<double>(elapsedNs);
+	double renderHz = elapsedNs == 0 ? 0.0
+					 : (static_cast<double>(stats.renderCount) * 1000000000.0) /
+						   static_cast<double>(elapsedNs);
+	obs_log(LOG_INFO,
+		"[perf] render avg=%.3f ms max=%.3f ms samples=%llu | capture avg=%.3f ms max=%.3f ms "
+		"samples=%llu | detect avg=%.3f ms max=%.3f ms samples=%llu | pipeline avg=%.3f ms "
+		"max=%.3f ms samples=%llu | render_hz=%.2f | analysis_hz=%.2f | no_face=%llu",
+		toMilliseconds(averageNs(stats.render)), toMilliseconds(stats.render.maxNs),
+		static_cast<unsigned long long>(stats.render.sampleCount), toMilliseconds(averageNs(stats.capture)),
+		toMilliseconds(stats.capture.maxNs), static_cast<unsigned long long>(stats.capture.sampleCount),
+		toMilliseconds(averageNs(stats.faceDetection)), toMilliseconds(stats.faceDetection.maxNs),
+		static_cast<unsigned long long>(stats.faceDetection.sampleCount),
+		toMilliseconds(averageNs(stats.pipeline)), toMilliseconds(stats.pipeline.maxNs),
+		static_cast<unsigned long long>(stats.pipeline.sampleCount), renderHz, analysisHz,
+		static_cast<unsigned long long>(stats.noFaceCount));
+
+	resetPerfStats(stats);
+	stats.windowStartNs = nowNs;
+	stats.wasEnabled = true;
+}
+} // namespace
+#endif
 
 const char *getHeartRateSourceName(void *)
 {
@@ -138,6 +225,10 @@ static obs_properties_t *algorithmProperties()
 
 	// Add boolean tick box for post-filtering
 	obs_properties_add_bool(props, "post-filtering", obs_module_text("PostFilteringAlgorithm"));
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+	obs_properties_add_bool(props, "enable perf instrumentation", "Enable perf instrumentation");
+	obs_properties_add_bool(props, "enable experimental async analysis", "Enable experimental async analysis");
+#endif
 	obs_property_set_modified_callback(dropdown, updateProperties);
 	obs_property_set_modified_callback(enableTracker, updateProperties);
 	obs_property_set_modified_callback(ppgDropdown, updateProperties);
@@ -303,6 +394,12 @@ void heartRateSourceRender(void *data, gs_effect_t *effect)
 	UNUSED_PARAMETER(effect);
 
 	struct heartRateSource *hrs = reinterpret_cast<struct heartRateSource *>(data);
+	uint64_t renderStartNs = 0;
+	uint64_t captureStartNs = 0;
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+	renderStartNs = os_gettime_ns();
+	captureStartNs = renderStartNs;
+#endif
 
 	if (!hrs->source) {
 		return;
@@ -328,9 +425,17 @@ void heartRateSourceRender(void *data, gs_effect_t *effect)
 	obs_data_t *hrsSettings = obs_source_get_settings(hrs->source);
 	MonitorRuntimeConfig config = readMonitorRuntimeConfig(hrsSettings);
 
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+	hrs->perfStats.renderCount += 1;
+#endif
+
 	std::vector<struct vec4> faceCoordinates;
 	std::vector<double_t> avg;
 	std::shared_ptr<input_BGRA_data> bgraData = hrs->frameCapture.sample();
+
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+	recordPerfSample(hrs->perfStats.capture, os_gettime_ns() - captureStartNs);
+#endif
 
 	// User has changed face detection algorithm, recreate the face detection object
 	if ((config.faceDetection.algorithm == FaceDetectionAlgorithm::HAAR_CASCADE &&
@@ -345,6 +450,9 @@ void heartRateSourceRender(void *data, gs_effect_t *effect)
 		if (enableTiming) {
 			start_face_detection = os_gettime_ns();
 		}
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+		uint64_t faceDetectionStartNs = os_gettime_ns();
+#endif
 		avg = hrs->faceDetection->detectFace(bgraData, faceCoordinates,
 						     config.faceDetection.enableDebugBoxes,
 						     config.faceDetection.enableTracker,
@@ -353,6 +461,10 @@ void heartRateSourceRender(void *data, gs_effect_t *effect)
 			end_face_detection = os_gettime_ns();
 			obs_log(LOG_INFO, "Face detection took: %lu ns", end_face_detection - start_face_detection);
 		}
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+		recordPerfSample(hrs->perfStats.faceDetection, os_gettime_ns() - faceDetectionStartNs);
+		hrs->perfStats.analysisCount += 1;
+#endif
 	}
 
 	double heartRate = -1.0;
@@ -360,9 +472,18 @@ void heartRateSourceRender(void *data, gs_effect_t *effect)
 	if (hasFaceSample(avg)) { // face detected
 		hrs->frameCount = 0; // reset frame count
 
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+		uint64_t pipelineStartNs = os_gettime_ns();
+#endif
 		heartRate = hrs->pipeline.update(avg, config.pipeline);
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+		recordPerfSample(hrs->perfStats.pipeline, os_gettime_ns() - pipelineStartNs);
+#endif
 	} else { // no face detected
 		hrs->frameCount += 1;
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+		hrs->perfStats.noFaceCount += 1;
+#endif
 		if (hrs->frameCount >= config.fps) { // if no face detected more than 1 second
 			noFaceDetected = true;
 		}
@@ -423,4 +544,9 @@ void heartRateSourceRender(void *data, gs_effect_t *effect)
 	} else {
 		skipVideoFilterIfSafe(hrs->source);
 	}
+
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+	recordPerfSample(hrs->perfStats.render, os_gettime_ns() - renderStartNs);
+	maybeLogPerfStats(hrs, config);
+#endif
 }

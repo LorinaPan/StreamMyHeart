@@ -23,6 +23,8 @@ constexpr const char *kGraphPlaneColour = "graph plane colour";
 constexpr const char *kEcgLineColour = "ecg line colour";
 constexpr const char *kEcgBackgroundColour = "ecg background colour";
 constexpr const char *kHeartRateGraphSize = "heart rate graph size";
+constexpr const char *kEnablePerfInstrumentation = "enable perf instrumentation";
+constexpr const char *kEnableExperimentalAsyncAnalysis = "enable experimental async analysis";
 } // namespace
 
 MonitorRuntimeConfig readMonitorRuntimeConfig(obs_data_t *settings)
@@ -30,6 +32,8 @@ MonitorRuntimeConfig readMonitorRuntimeConfig(obs_data_t *settings)
 	MonitorRuntimeConfig config;
 	config.fps = static_cast<int>(obs_data_get_int(settings, kFps));
 	config.isDisabled = obs_data_get_bool(settings, kIsDisabled);
+	config.enablePerfInstrumentation = obs_data_get_bool(settings, kEnablePerfInstrumentation);
+	config.enableExperimentalAsyncAnalysis = obs_data_get_bool(settings, kEnableExperimentalAsyncAnalysis);
 
 	config.pipeline.fps = config.fps;
 	config.pipeline.ppgAlgorithm = static_cast<PpgAlgorithmMethod>(obs_data_get_int(settings, kPpgAlgorithm));
@@ -89,6 +93,8 @@ void applyMonitorDefaults(obs_data_t *settings)
 	obs_data_set_default_bool(settings, kPostFiltering, true);
 	obs_data_set_default_bool(settings, kIsDisabled, false);
 	obs_data_set_default_int(settings, kHeartRateGraphSize, 10);
+	obs_data_set_default_bool(settings, kEnablePerfInstrumentation, false);
+	obs_data_set_default_bool(settings, kEnableExperimentalAsyncAnalysis, false);
 }
 
 void updateDisplayPropertyVisibility(obs_properties_t *props, const DisplaySceneConfig &config)
