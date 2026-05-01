@@ -1,7 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-result_path = 'eval/results/csv/'
+result_path = 'src/eval/results/csv/'
 
 df_track = pd.read_csv(result_path + "Dlib_BP_PCA_BP_Track.csv")
 df_no_track = pd.read_csv(result_path + "Dlib_Detrend_Green_BP_None.csv")

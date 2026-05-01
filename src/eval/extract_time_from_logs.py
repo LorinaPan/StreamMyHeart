@@ -29,8 +29,8 @@ def extract_obs_log_timings(input_file, output_csv):
 import os
 print(os.getcwd())
 
-log_path = "eval/results/logs/"
-result_path = "eval/results/csv/"
+log_path = "src/eval/results/logs/"
+result_path = "src/eval/results/csv/"
 
 evaluate_targets = [
     # with smoothing:

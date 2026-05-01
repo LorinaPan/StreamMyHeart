@@ -275,7 +275,8 @@ void evaluateHeartRate(const std::string &csvFilePath, FaceDetectionAlgorithm fa
 	std::vector<VideoData> videoDataList = readCSV(csvFilePath);
 
 	// Construct the results filename based on the parameters
-	std::string resultsFilename = "../../../../../eval/results/" + enumName(faceDetect) + "_" +
+	std::string resultsFilename = std::string(STREAM_MY_HEART_SOURCE_DIR) + "/src/eval/results/" +
+				      enumName(faceDetect) + "_" +
 				      enumName(preFilter) + "_" + enumName(ppg) + "_" +
 				      enumName(postFilter) + ".csv";
 
@@ -309,7 +310,7 @@ void evaluateHeartRate(const std::string &csvFilePath, FaceDetectionAlgorithm fa
 
 int main()
 {
-	std::string csvFilePath = "../../../../../eval/ground_truth.csv";
+	std::string csvFilePath = std::string(STREAM_MY_HEART_SOURCE_DIR) + "/src/eval/ground_truth.csv";
 	std::vector<PreFilteringMethod> preFilteringAlgorithms = {PreFilteringMethod::NONE,
 								  PreFilteringMethod::BANDPASS,
 								  PreFilteringMethod::DETREND,

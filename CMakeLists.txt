@@ -52,8 +52,10 @@ endif()
 add_library(streammyheart_core STATIC)
 
 find_package(libobs REQUIRED)
+target_include_directories(streammyheart_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/obs)
 target_link_libraries(streammyheart_core PUBLIC OBS::libobs)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs streammyheart_core)
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/obs)
 
 find_package(Eigen3 REQUIRED)
 include_directories(${EIGEN3_INCLUDE_DIR})
@@ -168,21 +170,23 @@ target_sources(
 target_sources(
   ${CMAKE_PROJECT_NAME}
   PRIVATE
-    src/graph_render_model.cpp
-    src/graph_source.cpp
-    src/graph_source_info.c
-    src/display_scene.cpp
-    src/frame_capture.cpp
-    src/plugin-main.cpp
-    src/plugin_config.cpp
-    src/heart_rate_source.cpp
-    src/heart_rate_source_info.c
-    src/obs_utils.cpp
+    src/obs/graph_render_model.cpp
+    src/obs/graph_source.cpp
+    src/obs/graph_source_info.c
+    src/obs/display_scene.cpp
+    src/obs/frame_capture.cpp
+    src/obs/plugin-main.cpp
+    src/obs/plugin_config.cpp
+    src/obs/heart_rate_source.cpp
+    src/obs/heart_rate_source_info.c
+    src/obs/obs_utils.cpp
 )
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
 
 if(BUILD_EVALUATION)
-  add_executable(${CMAKE_PROJECT_NAME}_eval eval/run_evaluation.cpp)
+  add_executable(${CMAKE_PROJECT_NAME}_eval src/eval/run_evaluation.cpp)
+  target_include_directories(${CMAKE_PROJECT_NAME}_eval PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/obs)
+  target_compile_definitions(${CMAKE_PROJECT_NAME}_eval PRIVATE STREAM_MY_HEART_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
   target_link_libraries(${CMAKE_PROJECT_NAME}_eval PRIVATE streammyheart_core)
 endif()
