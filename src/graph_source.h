@@ -4,7 +4,7 @@
 #include <obs-module.h>
 
 #ifdef __cplusplus
-#include <mutex>
+#include "graph_render_model.h"
 #else
 #include <stdbool.h>
 #endif
@@ -16,10 +16,11 @@ extern "C" {
 struct graph_source {
 	obs_source_t *source;
 #ifdef __cplusplus
-	std::vector<int> buffer;
+	GraphRenderState renderState;
 #endif
 	bool isDisabled;
 	bool ecg;
+	int frameCounter;
 };
 
 const char *getGraphSourceName(void *);
@@ -31,18 +32,12 @@ uint32_t graphSourceInfoGetHeight(void *data);
 void graphSourceActivate(void *data);
 void graphSourceDeactivate(void *data);
 
-void drawGraph(struct graph_source *source, int curHeartRate, bool ecg);
-
 const char *getECGSourceName(void *);
 void *createECGSourceInfo(obs_data_t *settings, obs_source_t *source);
 uint32_t ecgSourceInfoGetWidth(void *data);
-float getDeltaTime();
 
 #ifdef __cplusplus
 }
-
-std::vector<float> generateEcgWaveform(int heartRate, int width);
-
 #endif
 
 #endif

@@ -168,6 +168,7 @@ target_sources(
 target_sources(
   ${CMAKE_PROJECT_NAME}
   PRIVATE
+    src/graph_render_model.cpp
     src/graph_source.cpp
     src/graph_source_info.c
     src/display_scene.cpp
