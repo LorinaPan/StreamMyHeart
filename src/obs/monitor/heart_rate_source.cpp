@@ -22,6 +22,43 @@
 
 bool enableTiming = false;
 
+namespace {
+constexpr uint64_t kAnalysisCadenceNs = 1000000000ULL / 15ULL;
+
+bool shouldUseAsyncDlib(const MonitorRuntimeConfig &config)
+{
+	return config.enableExperimentalAsyncAnalysis &&
+	       config.faceDetection.algorithm == FaceDetectionAlgorithm::DLIB;
+}
+
+void publishIdleSnapshot(struct heartRateSource *hrs)
+{
+	std::lock_guard<std::mutex> lock(hrs->analysisMutex);
+	hrs->analysisResult = {};
+	hrs->analysisResult.state = AnalysisSnapshotState::Idle;
+	hrs->analysisResult.heartRateText = "Calibrating...";
+	hrs->analysisResult.moodText = "Calibrating...";
+	hrs->analysisResult.publishedTimestampNs = os_gettime_ns();
+}
+
+void analysisWorkerLoop(struct heartRateSource *hrs)
+{
+	std::unique_lock<std::mutex> lock(hrs->analysisMutex);
+	while (!hrs->stopAnalysisThread) {
+		hrs->analysisCondition.wait(lock, [hrs] {
+			return hrs->stopAnalysisThread || (!hrs->analysisPaused && hrs->hasPendingFrame);
+		});
+		if (hrs->stopAnalysisThread) {
+			break;
+		}
+
+		// Stage shell only. Real async analysis lands in next stage.
+		hrs->hasPendingFrame = false;
+		hrs->workerBusy = false;
+	}
+}
+} // namespace
+
 #ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
 namespace {
 constexpr uint64_t kPerfLogIntervalNs = 1000000000ULL;
@@ -137,7 +174,11 @@ void *heartRateSourceCreate(obs_data_t *settings, obs_source_t *source)
 	reconcileDisplayScene(config.displayScene);
 
 	hrs->faceDetection = FaceDetection::create(config.faceDetection.algorithm);
+	hrs->asyncFaceDetection = FaceDetection::create(FaceDetectionAlgorithm::DLIB);
 	hrs->frameCount = 0;
+	hrs->analysisPaused = true;
+	publishIdleSnapshot(hrs);
+	hrs->analysisThread = std::thread(analysisWorkerLoop, hrs);
 
 	return hrs;
 }
@@ -151,6 +192,17 @@ void heartRateSourceDestroy(void *data)
 
 	if (hrs) {
 		hrs->isDisabled = true;
+		{
+			std::lock_guard<std::mutex> lock(hrs->analysisMutex);
+			hrs->stopAnalysisThread = true;
+			hrs->analysisPaused = true;
+			hrs->hasPendingFrame = false;
+			hrs->captureRequested = false;
+		}
+		hrs->analysisCondition.notify_all();
+		if (hrs->analysisThread.joinable()) {
+			hrs->analysisThread.join();
+		}
 		obs_enter_graphics();
 		hrs->frameCapture.destroy();
 		gs_effect_destroy(hrs->testing);
@@ -307,6 +359,12 @@ void heartRateSourceActivate(void *data)
 {
 	struct heartRateSource *hrs = reinterpret_cast<heartRateSource *>(data);
 	hrs->isDisabled = false;
+	{
+		std::lock_guard<std::mutex> lock(hrs->analysisMutex);
+		hrs->analysisPaused = false;
+		hrs->nextCaptureDueNs = os_gettime_ns();
+	}
+	hrs->analysisCondition.notify_all();
 	obs_data_t *settings = obs_source_get_settings(hrs->source);
 	obs_data_set_bool(settings, "is disabled", false);
 	obs_data_release(settings);
@@ -316,6 +374,13 @@ void heartRateSourceDeactivate(void *data)
 {
 	struct heartRateSource *hrs = reinterpret_cast<heartRateSource *>(data);
 	hrs->isDisabled = true;
+	{
+		std::lock_guard<std::mutex> lock(hrs->analysisMutex);
+		hrs->analysisPaused = true;
+		hrs->hasPendingFrame = false;
+		hrs->captureRequested = false;
+	}
+	publishIdleSnapshot(hrs);
 	obs_data_t *settings = obs_source_get_settings(hrs->source);
 	obs_data_set_bool(settings, "is disabled", true);
 	obs_data_release(settings);
@@ -335,6 +400,28 @@ void heartRateSourceTick(void *data, float seconds)
 	if (!obs_source_enabled(hrs->source)) {
 		return;
 	}
+
+	obs_data_t *settings = obs_source_get_settings(hrs->source);
+	MonitorRuntimeConfig config = readMonitorRuntimeConfig(settings);
+	obs_data_release(settings);
+
+	if (!shouldUseAsyncDlib(config)) {
+		std::lock_guard<std::mutex> lock(hrs->analysisMutex);
+		hrs->analysisPaused = true;
+		hrs->captureRequested = false;
+		return;
+	}
+
+	uint64_t nowNs = os_gettime_ns();
+	{
+		std::lock_guard<std::mutex> lock(hrs->analysisMutex);
+		hrs->analysisPaused = false;
+		if (hrs->nextCaptureDueNs == 0 || nowNs >= hrs->nextCaptureDueNs) {
+			hrs->captureRequested = true;
+			hrs->nextCaptureDueNs = nowNs + kAnalysisCadenceNs;
+		}
+	}
+	hrs->analysisCondition.notify_all();
 }
 
 static gs_texture_t *drawRectangle(struct heartRateSource *hrs, uint32_t width, uint32_t height,

@@ -5,8 +5,11 @@
 #include "core/frame_data.h"
 
 #ifdef __cplusplus
+#include <condition_variable>
 #include <mutex>
 #include <string>
+#include <thread>
+#include <vector>
 #include "algorithm/face_detection/face_detection.h"
 #include "core/heart_rate_pipeline.h"
 #include "frame_capture.h"
@@ -28,6 +31,33 @@ extern "C" {
 extern bool enableTiming;
 
 #ifdef __cplusplus
+enum class AnalysisSnapshotState {
+	Idle,
+	Calibrating,
+	NoFace,
+	Ready,
+};
+
+struct CapturedFrameSnapshot {
+	std::vector<uint8_t> pixels;
+	uint32_t width = 0;
+	uint32_t height = 0;
+	uint32_t linesize = 0;
+	uint64_t captureTimestampNs = 0;
+	uint64_t frameId = 0;
+};
+
+struct AnalysisResultSnapshot {
+	AnalysisSnapshotState state = AnalysisSnapshotState::Idle;
+	int heartRate = -1;
+	std::string heartRateText;
+	std::string moodText;
+	std::vector<struct vec4> faceCoordinates;
+	uint64_t sourceFrameTimestampNs = 0;
+	uint64_t publishedTimestampNs = 0;
+	uint64_t frameId = 0;
+};
+
 #ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
 struct PerfAccumulator {
 	uint64_t sampleCount = 0;
@@ -56,6 +86,20 @@ struct heartRateSource {
 	FilterFrameCapture frameCapture;
 	std::unique_ptr<FaceDetection> faceDetection;
 	HeartRatePipeline pipeline;
+	std::unique_ptr<FaceDetection> asyncFaceDetection;
+	HeartRatePipeline asyncPipeline;
+	std::mutex analysisMutex;
+	std::condition_variable analysisCondition;
+	std::thread analysisThread;
+	CapturedFrameSnapshot pendingFrame;
+	AnalysisResultSnapshot analysisResult;
+	bool stopAnalysisThread = false;
+	bool analysisPaused = true;
+	bool captureRequested = false;
+	bool hasPendingFrame = false;
+	bool workerBusy = false;
+	uint64_t nextCaptureDueNs = 0;
+	uint64_t nextFrameId = 0;
 #ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
 	MonitorPerfStats perfStats;
 #endif

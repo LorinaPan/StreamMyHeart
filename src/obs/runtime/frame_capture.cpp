@@ -2,6 +2,7 @@
 
 #include <graphics/matrix4.h>
 #include <obs-module.h>
+#include <cstring>
 
 #include "plugin-support.h"
 
@@ -83,16 +84,20 @@ bool FilterFrameCapture::capture(obs_source_t *filterSource)
 
 	{
 		std::lock_guard<std::mutex> lock(bgraDataMutex_);
+		size_t bufferSize = static_cast<size_t>(lineSize) * height;
+		uint8_t *copiedData = static_cast<uint8_t *>(bmalloc(bufferSize));
+		memcpy(copiedData, videoData, bufferSize);
 		std::shared_ptr<input_BGRA_data> bgraData(
-			static_cast<input_BGRA_data *>(bzalloc(sizeof(input_BGRA_data))), [](input_BGRA_data *data) {
+			static_cast<input_BGRA_data *>(bzalloc(sizeof(input_BGRA_data))), [copiedData](input_BGRA_data *data) {
 				if (data) {
+					bfree(copiedData);
 					bfree(data);
 				}
 			});
 		bgraData->width = width;
 		bgraData->height = height;
 		bgraData->linesize = lineSize;
-		bgraData->data = videoData;
+		bgraData->data = copiedData;
 		bgraData_ = bgraData;
 	}
 
