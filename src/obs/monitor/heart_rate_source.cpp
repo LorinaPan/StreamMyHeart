@@ -24,11 +24,26 @@ bool enableTiming = false;
 
 namespace {
 constexpr uint64_t kAnalysisCadenceNs = 1000000000ULL / 15ULL;
+constexpr uint64_t kNoFaceGracePeriodNs = 750000000ULL;
+constexpr int kAsyncRedetectIntervalFrames = 11;
+
+std::string getMood(int heart_rate);
 
 bool shouldUseAsyncDlib(const MonitorRuntimeConfig &config)
 {
 	return config.enableExperimentalAsyncAnalysis &&
 	       config.faceDetection.algorithm == FaceDetectionAlgorithm::DLIB;
+}
+
+std::string buildHeartRateText(const DisplaySceneConfig &config, int roundedHeartRate)
+{
+	std::string heartRateText = config.heartRateText;
+	size_t pos = heartRateText.find("{hr}");
+	if (pos != std::string::npos) {
+		heartRateText.replace(pos, 4, std::to_string(roundedHeartRate));
+		return heartRateText;
+	}
+	return "Heart rate: " + std::to_string(roundedHeartRate) + " BPM";
 }
 
 void publishIdleSnapshot(struct heartRateSource *hrs)
@@ -41,20 +56,140 @@ void publishIdleSnapshot(struct heartRateSource *hrs)
 	hrs->analysisResult.publishedTimestampNs = os_gettime_ns();
 }
 
+AnalysisResultSnapshot readAnalysisSnapshot(struct heartRateSource *hrs)
+{
+	std::lock_guard<std::mutex> lock(hrs->analysisMutex);
+	return hrs->analysisResult;
+}
+
+void writeAnalysisSnapshot(struct heartRateSource *hrs, const AnalysisResultSnapshot &snapshot)
+{
+	std::lock_guard<std::mutex> lock(hrs->analysisMutex);
+	hrs->analysisResult = snapshot;
+	if (snapshot.state == AnalysisSnapshotState::Ready) {
+		hrs->lastReadyResult = snapshot;
+	}
+}
+
+std::shared_ptr<input_BGRA_data> makeFrameView(const CapturedFrameSnapshot &frame)
+{
+	auto bgraData = std::make_shared<input_BGRA_data>();
+	bgraData->data = const_cast<uint8_t *>(frame.pixels.data());
+	bgraData->width = frame.width;
+	bgraData->height = frame.height;
+	bgraData->linesize = frame.linesize;
+	return bgraData;
+}
+
+void applyAsyncSnapshot(obs_data_t *settings, const AnalysisResultSnapshot &snapshot)
+{
+	if (snapshot.state == AnalysisSnapshotState::Ready) {
+		obs_data_set_int(settings, "heart rate", snapshot.heartRate);
+	} else if (snapshot.state == AnalysisSnapshotState::Calibrating ||
+		   snapshot.state == AnalysisSnapshotState::NoFace) {
+		obs_data_set_int(settings, "heart rate", -1);
+	}
+
+	if (!snapshot.heartRateText.empty()) {
+		updateDisplaySceneText(snapshot.heartRateText, snapshot.moodText);
+	}
+}
+
 void analysisWorkerLoop(struct heartRateSource *hrs)
 {
-	std::unique_lock<std::mutex> lock(hrs->analysisMutex);
-	while (!hrs->stopAnalysisThread) {
-		hrs->analysisCondition.wait(lock, [hrs] {
-			return hrs->stopAnalysisThread || (!hrs->analysisPaused && hrs->hasPendingFrame);
-		});
-		if (hrs->stopAnalysisThread) {
-			break;
+	while (true) {
+		CapturedFrameSnapshot frame;
+		MonitorRuntimeConfig config;
+		AnalysisResultSnapshot lastReadySnapshot;
+		bool resetAnalysis = false;
+
+		{
+			std::unique_lock<std::mutex> lock(hrs->analysisMutex);
+			hrs->analysisCondition.wait(lock, [hrs] {
+				return hrs->stopAnalysisThread || (!hrs->analysisPaused && hrs->hasPendingFrame);
+			});
+			if (hrs->stopAnalysisThread) {
+				break;
+			}
+
+			frame = hrs->pendingFrame;
+			config = hrs->asyncConfig;
+			lastReadySnapshot = hrs->lastReadyResult;
+			resetAnalysis = hrs->resetAsyncAnalysis;
+			hrs->resetAsyncAnalysis = false;
+			hrs->hasPendingFrame = false;
+			hrs->workerBusy = true;
 		}
 
-		// Stage shell only. Real async analysis lands in next stage.
-		hrs->hasPendingFrame = false;
-		hrs->workerBusy = false;
+		if (resetAnalysis || !hrs->asyncFaceDetection) {
+			hrs->asyncPipeline.reset();
+			hrs->asyncFaceDetection = FaceDetection::create(FaceDetectionAlgorithm::DLIB);
+		}
+
+		uint64_t analysisStartNs = os_gettime_ns();
+		uint64_t faceDetectionStartNs = analysisStartNs;
+		std::vector<struct vec4> faceCoordinates;
+		std::vector<double_t> avg = hrs->asyncFaceDetection->detectFace(
+			makeFrameView(frame), faceCoordinates, config.faceDetection.enableDebugBoxes,
+			config.faceDetection.enableTracker, kAsyncRedetectIntervalFrames);
+		uint64_t faceDetectionEndNs = os_gettime_ns();
+
+		AnalysisResultSnapshot snapshot;
+		snapshot.faceCoordinates = faceCoordinates;
+		snapshot.sourceFrameTimestampNs = frame.captureTimestampNs;
+		snapshot.publishedTimestampNs = faceDetectionEndNs;
+		snapshot.frameId = frame.frameId;
+
+		if (hasFaceSample(avg)) {
+			double heartRate = hrs->asyncPipeline.update(avg, config.pipeline);
+			if (heartRate > 0.0) {
+				int roundedHeartRate = static_cast<int>(std::round(heartRate));
+				snapshot.state = AnalysisSnapshotState::Ready;
+				snapshot.heartRate = roundedHeartRate;
+				snapshot.heartRateText = buildHeartRateText(config.displayScene, roundedHeartRate);
+				snapshot.moodText = "Mood: " + getMood(roundedHeartRate);
+			} else {
+				snapshot.state = AnalysisSnapshotState::Calibrating;
+				snapshot.heartRateText = "Calibrating...";
+				snapshot.moodText = "Calibrating...";
+			}
+		} else if (lastReadySnapshot.state == AnalysisSnapshotState::Ready &&
+			   faceDetectionEndNs - lastReadySnapshot.sourceFrameTimestampNs <= kNoFaceGracePeriodNs) {
+			snapshot = lastReadySnapshot;
+			snapshot.publishedTimestampNs = faceDetectionEndNs;
+			snapshot.faceCoordinates = faceCoordinates;
+		} else {
+			snapshot.state = AnalysisSnapshotState::NoFace;
+			snapshot.heartRateText = "No Face Detected";
+			snapshot.moodText = "No Face Detected";
+		}
+
+		writeAnalysisSnapshot(hrs, snapshot);
+
+		{
+			std::lock_guard<std::mutex> lock(hrs->analysisMutex);
+			hrs->workerBusy = false;
+		}
+
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+		{
+			std::lock_guard<std::mutex> lock(hrs->analysisMutex);
+			hrs->perfStats.faceDetection.sampleCount += 1;
+			hrs->perfStats.faceDetection.totalNs += faceDetectionEndNs - faceDetectionStartNs;
+			hrs->perfStats.faceDetection.maxNs = std::max(hrs->perfStats.faceDetection.maxNs,
+									 faceDetectionEndNs - faceDetectionStartNs);
+			uint64_t pipelineDurationNs = os_gettime_ns() - faceDetectionEndNs;
+			hrs->perfStats.pipeline.sampleCount += 1;
+			hrs->perfStats.pipeline.totalNs += pipelineDurationNs;
+			hrs->perfStats.pipeline.maxNs =
+				std::max(hrs->perfStats.pipeline.maxNs, pipelineDurationNs);
+			hrs->perfStats.analysisCount += 1;
+			if (snapshot.state == AnalysisSnapshotState::NoFace) {
+				hrs->perfStats.noFaceCount += 1;
+			}
+			hrs->perfStats.workerBusyTimeNs += os_gettime_ns() - analysisStartNs;
+		}
+#endif
 	}
 }
 } // namespace
@@ -70,6 +205,13 @@ void recordPerfSample(PerfAccumulator &accumulator, uint64_t durationNs)
 	accumulator.maxNs = std::max(accumulator.maxNs, durationNs);
 }
 
+void recordPerfSampleForField(struct heartRateSource *hrs, PerfAccumulator MonitorPerfStats::*field,
+			      uint64_t durationNs)
+{
+	std::lock_guard<std::mutex> lock(hrs->analysisMutex);
+	recordPerfSample(hrs->perfStats.*field, durationNs);
+}
+
 double toMilliseconds(uint64_t durationNs)
 {
 	return static_cast<double>(durationNs) / 1000000.0;
@@ -81,6 +223,8 @@ void resetPerfStats(MonitorPerfStats &stats)
 	stats.renderCount = 0;
 	stats.analysisCount = 0;
 	stats.noFaceCount = 0;
+	stats.droppedFrameCount = 0;
+	stats.workerBusyTimeNs = 0;
 	stats.render = {};
 	stats.capture = {};
 	stats.faceDetection = {};
@@ -89,26 +233,37 @@ void resetPerfStats(MonitorPerfStats &stats)
 
 void maybeLogPerfStats(struct heartRateSource *hrs, const MonitorRuntimeConfig &config)
 {
-	if (!config.enablePerfInstrumentation) {
-		if (hrs->perfStats.wasEnabled) {
-			resetPerfStats(hrs->perfStats);
-			hrs->perfStats.wasEnabled = false;
-		}
-		return;
-	}
-
+	MonitorPerfStats statsSnapshot;
+	AnalysisResultSnapshot analysisSnapshot;
 	uint64_t nowNs = os_gettime_ns();
-	MonitorPerfStats &stats = hrs->perfStats;
-	if (stats.windowStartNs == 0) {
-		stats.windowStartNs = nowNs;
-		stats.wasEnabled = true;
-		return;
-	}
 
-	uint64_t elapsedNs = nowNs - stats.windowStartNs;
-	if (elapsedNs < kPerfLogIntervalNs) {
-		stats.wasEnabled = true;
-		return;
+	{
+		std::lock_guard<std::mutex> lock(hrs->analysisMutex);
+		if (!config.enablePerfInstrumentation) {
+			if (hrs->perfStats.wasEnabled) {
+				resetPerfStats(hrs->perfStats);
+				hrs->perfStats.wasEnabled = false;
+			}
+			return;
+		}
+
+		if (hrs->perfStats.windowStartNs == 0) {
+			hrs->perfStats.windowStartNs = nowNs;
+			hrs->perfStats.wasEnabled = true;
+			return;
+		}
+
+		uint64_t elapsedNs = nowNs - hrs->perfStats.windowStartNs;
+		if (elapsedNs < kPerfLogIntervalNs) {
+			hrs->perfStats.wasEnabled = true;
+			return;
+		}
+
+		statsSnapshot = hrs->perfStats;
+		analysisSnapshot = hrs->analysisResult;
+		resetPerfStats(hrs->perfStats);
+		hrs->perfStats.windowStartNs = nowNs;
+		hrs->perfStats.wasEnabled = true;
 	}
 
 	auto averageNs = [](const PerfAccumulator &accumulator) -> uint64_t {
@@ -118,28 +273,35 @@ void maybeLogPerfStats(struct heartRateSource *hrs, const MonitorRuntimeConfig &
 		return accumulator.totalNs / accumulator.sampleCount;
 	};
 
+	uint64_t elapsedNs = nowNs - statsSnapshot.windowStartNs;
 	double analysisHz = elapsedNs == 0 ? 0.0
-					   : (static_cast<double>(stats.analysisCount) * 1000000000.0) /
+					   : (static_cast<double>(statsSnapshot.analysisCount) * 1000000000.0) /
 						     static_cast<double>(elapsedNs);
 	double renderHz = elapsedNs == 0 ? 0.0
-					 : (static_cast<double>(stats.renderCount) * 1000000000.0) /
+					 : (static_cast<double>(statsSnapshot.renderCount) * 1000000000.0) /
 						   static_cast<double>(elapsedNs);
+	double workerBusyRatio = elapsedNs == 0 ? 0.0
+						: static_cast<double>(statsSnapshot.workerBusyTimeNs) /
+							  static_cast<double>(elapsedNs);
+	double resultAgeMs = analysisSnapshot.sourceFrameTimestampNs == 0
+				     ? 0.0
+				     : toMilliseconds(nowNs - analysisSnapshot.sourceFrameTimestampNs);
 	obs_log(LOG_INFO,
 		"[perf] render avg=%.3f ms max=%.3f ms samples=%llu | capture avg=%.3f ms max=%.3f ms "
 		"samples=%llu | detect avg=%.3f ms max=%.3f ms samples=%llu | pipeline avg=%.3f ms "
-		"max=%.3f ms samples=%llu | render_hz=%.2f | analysis_hz=%.2f | no_face=%llu",
-		toMilliseconds(averageNs(stats.render)), toMilliseconds(stats.render.maxNs),
-		static_cast<unsigned long long>(stats.render.sampleCount), toMilliseconds(averageNs(stats.capture)),
-		toMilliseconds(stats.capture.maxNs), static_cast<unsigned long long>(stats.capture.sampleCount),
-		toMilliseconds(averageNs(stats.faceDetection)), toMilliseconds(stats.faceDetection.maxNs),
-		static_cast<unsigned long long>(stats.faceDetection.sampleCount),
-		toMilliseconds(averageNs(stats.pipeline)), toMilliseconds(stats.pipeline.maxNs),
-		static_cast<unsigned long long>(stats.pipeline.sampleCount), renderHz, analysisHz,
-		static_cast<unsigned long long>(stats.noFaceCount));
-
-	resetPerfStats(stats);
-	stats.windowStartNs = nowNs;
-	stats.wasEnabled = true;
+		"max=%.3f ms samples=%llu | render_hz=%.2f | analysis_hz=%.2f | result_age=%.3f ms | "
+		"worker_busy=%.2f | dropped=%llu | no_face=%llu",
+		toMilliseconds(averageNs(statsSnapshot.render)), toMilliseconds(statsSnapshot.render.maxNs),
+		static_cast<unsigned long long>(statsSnapshot.render.sampleCount),
+		toMilliseconds(averageNs(statsSnapshot.capture)), toMilliseconds(statsSnapshot.capture.maxNs),
+		static_cast<unsigned long long>(statsSnapshot.capture.sampleCount),
+		toMilliseconds(averageNs(statsSnapshot.faceDetection)),
+		toMilliseconds(statsSnapshot.faceDetection.maxNs),
+		static_cast<unsigned long long>(statsSnapshot.faceDetection.sampleCount),
+		toMilliseconds(averageNs(statsSnapshot.pipeline)), toMilliseconds(statsSnapshot.pipeline.maxNs),
+		static_cast<unsigned long long>(statsSnapshot.pipeline.sampleCount), renderHz, analysisHz,
+		resultAgeMs, workerBusyRatio, static_cast<unsigned long long>(statsSnapshot.droppedFrameCount),
+		static_cast<unsigned long long>(statsSnapshot.noFaceCount));
 }
 } // namespace
 #endif
@@ -177,6 +339,7 @@ void *heartRateSourceCreate(obs_data_t *settings, obs_source_t *source)
 	hrs->asyncFaceDetection = FaceDetection::create(FaceDetectionAlgorithm::DLIB);
 	hrs->frameCount = 0;
 	hrs->analysisPaused = true;
+	hrs->asyncConfig = config;
 	publishIdleSnapshot(hrs);
 	hrs->analysisThread = std::thread(analysisWorkerLoop, hrs);
 
@@ -377,6 +540,8 @@ void heartRateSourceDeactivate(void *data)
 	{
 		std::lock_guard<std::mutex> lock(hrs->analysisMutex);
 		hrs->analysisPaused = true;
+		hrs->asyncPathActive = false;
+		hrs->resetAsyncAnalysis = true;
 		hrs->hasPendingFrame = false;
 		hrs->captureRequested = false;
 	}
@@ -398,6 +563,10 @@ void heartRateSourceTick(void *data, float seconds)
 	}
 
 	if (!obs_source_enabled(hrs->source)) {
+		std::lock_guard<std::mutex> lock(hrs->analysisMutex);
+		hrs->analysisPaused = true;
+		hrs->asyncPathActive = false;
+		hrs->captureRequested = false;
 		return;
 	}
 
@@ -408,6 +577,8 @@ void heartRateSourceTick(void *data, float seconds)
 	if (!shouldUseAsyncDlib(config)) {
 		std::lock_guard<std::mutex> lock(hrs->analysisMutex);
 		hrs->analysisPaused = true;
+		hrs->asyncPathActive = false;
+		hrs->resetAsyncAnalysis = true;
 		hrs->captureRequested = false;
 		return;
 	}
@@ -415,7 +586,14 @@ void heartRateSourceTick(void *data, float seconds)
 	uint64_t nowNs = os_gettime_ns();
 	{
 		std::lock_guard<std::mutex> lock(hrs->analysisMutex);
+		if (!hrs->asyncPathActive) {
+			hrs->analysisResult = {};
+			hrs->lastReadyResult = {};
+			hrs->asyncPathActive = true;
+			hrs->resetAsyncAnalysis = true;
+		}
 		hrs->analysisPaused = false;
+		hrs->asyncConfig = config;
 		if (hrs->nextCaptureDueNs == 0 || nowNs >= hrs->nextCaptureDueNs) {
 			hrs->captureRequested = true;
 			hrs->nextCaptureDueNs = nowNs + kAnalysisCadenceNs;
@@ -458,6 +636,7 @@ static gs_texture_t *drawRectangle(struct heartRateSource *hrs, uint32_t width, 
 	return blurredTexture;
 }
 
+namespace {
 std::string getMood(int heart_rate)
 {
 	std::string mood;
@@ -474,6 +653,7 @@ std::string getMood(int heart_rate)
 	}
 	return mood;
 }
+} // namespace
 
 // Render function
 void heartRateSourceRender(void *data, gs_effect_t *effect)
@@ -482,10 +662,8 @@ void heartRateSourceRender(void *data, gs_effect_t *effect)
 
 	struct heartRateSource *hrs = reinterpret_cast<struct heartRateSource *>(data);
 	uint64_t renderStartNs = 0;
-	uint64_t captureStartNs = 0;
 #ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
 	renderStartNs = os_gettime_ns();
-	captureStartNs = renderStartNs;
 #endif
 
 	if (!hrs->source) {
@@ -497,31 +675,91 @@ void heartRateSourceRender(void *data, gs_effect_t *effect)
 		return;
 	}
 
+	obs_data_t *hrsSettings = obs_source_get_settings(hrs->source);
+	MonitorRuntimeConfig config = readMonitorRuntimeConfig(hrsSettings);
+
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+	{
+		std::lock_guard<std::mutex> lock(hrs->analysisMutex);
+		hrs->perfStats.renderCount += 1;
+	}
+#endif
+
+	if (shouldUseAsyncDlib(config)) {
+		bool shouldCapture = false;
+		{
+			std::lock_guard<std::mutex> lock(hrs->analysisMutex);
+			shouldCapture = hrs->captureRequested;
+			hrs->captureRequested = false;
+		}
+
+		if (shouldCapture) {
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+			uint64_t captureStartNs = os_gettime_ns();
+#endif
+			if (hrs->frameCapture.capture(hrs->source)) {
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+				recordPerfSampleForField(hrs, &MonitorPerfStats::capture, os_gettime_ns() - captureStartNs);
+#endif
+				std::shared_ptr<input_BGRA_data> bgraData = hrs->frameCapture.sample();
+				if (bgraData && bgraData->data) {
+					CapturedFrameSnapshot snapshot;
+					size_t bufferSize = static_cast<size_t>(bgraData->linesize) * bgraData->height;
+					snapshot.pixels.assign(bgraData->data, bgraData->data + bufferSize);
+					snapshot.width = bgraData->width;
+					snapshot.height = bgraData->height;
+					snapshot.linesize = bgraData->linesize;
+					snapshot.captureTimestampNs = os_gettime_ns();
+					snapshot.frameId = ++hrs->nextFrameId;
+
+					{
+						std::lock_guard<std::mutex> lock(hrs->analysisMutex);
+						if (hrs->hasPendingFrame) {
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+							hrs->perfStats.droppedFrameCount += 1;
+#endif
+						}
+						hrs->pendingFrame = std::move(snapshot);
+						hrs->hasPendingFrame = true;
+					}
+					hrs->analysisCondition.notify_all();
+				}
+			}
+		}
+
+		AnalysisResultSnapshot snapshot = readAnalysisSnapshot(hrs);
+		applyAsyncSnapshot(hrsSettings, snapshot);
+		obs_data_release(hrsSettings);
+		skipVideoFilterIfSafe(hrs->source);
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+		recordPerfSampleForField(hrs, &MonitorPerfStats::render, os_gettime_ns() - renderStartNs);
+		maybeLogPerfStats(hrs, config);
+#endif
+		return;
+	}
+
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+	uint64_t captureStartNs = os_gettime_ns();
+#endif
 	if (!hrs->frameCapture.capture(hrs->source)) {
+		obs_data_release(hrsSettings);
 		skipVideoFilterIfSafe(hrs->source);
 		return;
 	}
 
 	if (!hrs->testing) {
+		obs_data_release(hrsSettings);
 		obs_log(LOG_INFO, "Effect not loaded");
-		// Effect failed to load, skip rendering
 		skipVideoFilterIfSafe(hrs->source);
 		return;
 	}
-
-	obs_data_t *hrsSettings = obs_source_get_settings(hrs->source);
-	MonitorRuntimeConfig config = readMonitorRuntimeConfig(hrsSettings);
-
-#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
-	hrs->perfStats.renderCount += 1;
-#endif
 
 	std::vector<struct vec4> faceCoordinates;
 	std::vector<double_t> avg;
 	std::shared_ptr<input_BGRA_data> bgraData = hrs->frameCapture.sample();
 
 #ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
-	recordPerfSample(hrs->perfStats.capture, os_gettime_ns() - captureStartNs);
+	recordPerfSampleForField(hrs, &MonitorPerfStats::capture, os_gettime_ns() - captureStartNs);
 #endif
 
 	// User has changed face detection algorithm, recreate the face detection object
@@ -549,7 +787,9 @@ void heartRateSourceRender(void *data, gs_effect_t *effect)
 			obs_log(LOG_INFO, "Face detection took: %lu ns", end_face_detection - start_face_detection);
 		}
 #ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
-		recordPerfSample(hrs->perfStats.faceDetection, os_gettime_ns() - faceDetectionStartNs);
+		recordPerfSampleForField(hrs, &MonitorPerfStats::faceDetection,
+					 os_gettime_ns() - faceDetectionStartNs);
+		std::lock_guard<std::mutex> lock(hrs->analysisMutex);
 		hrs->perfStats.analysisCount += 1;
 #endif
 	}
@@ -564,11 +804,12 @@ void heartRateSourceRender(void *data, gs_effect_t *effect)
 #endif
 		heartRate = hrs->pipeline.update(avg, config.pipeline);
 #ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
-		recordPerfSample(hrs->perfStats.pipeline, os_gettime_ns() - pipelineStartNs);
+		recordPerfSampleForField(hrs, &MonitorPerfStats::pipeline, os_gettime_ns() - pipelineStartNs);
 #endif
 	} else { // no face detected
 		hrs->frameCount += 1;
 #ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+		std::lock_guard<std::mutex> lock(hrs->analysisMutex);
 		hrs->perfStats.noFaceCount += 1;
 #endif
 		if (hrs->frameCount >= config.fps) { // if no face detected more than 1 second
@@ -633,7 +874,7 @@ void heartRateSourceRender(void *data, gs_effect_t *effect)
 	}
 
 #ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
-	recordPerfSample(hrs->perfStats.render, os_gettime_ns() - renderStartNs);
+	recordPerfSampleForField(hrs, &MonitorPerfStats::render, os_gettime_ns() - renderStartNs);
 	maybeLogPerfStats(hrs, config);
 #endif
 }

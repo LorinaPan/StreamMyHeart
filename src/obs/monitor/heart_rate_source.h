@@ -13,6 +13,7 @@
 #include "algorithm/face_detection/face_detection.h"
 #include "core/heart_rate_pipeline.h"
 #include "frame_capture.h"
+#include "plugin_config.h"
 #else
 #include <stdbool.h>
 #endif
@@ -71,6 +72,8 @@ struct MonitorPerfStats {
 	uint64_t renderCount = 0;
 	uint64_t analysisCount = 0;
 	uint64_t noFaceCount = 0;
+	uint64_t droppedFrameCount = 0;
+	uint64_t workerBusyTimeNs = 0;
 	PerfAccumulator render;
 	PerfAccumulator capture;
 	PerfAccumulator faceDetection;
@@ -93,8 +96,12 @@ struct heartRateSource {
 	std::thread analysisThread;
 	CapturedFrameSnapshot pendingFrame;
 	AnalysisResultSnapshot analysisResult;
+	AnalysisResultSnapshot lastReadyResult;
+	MonitorRuntimeConfig asyncConfig;
 	bool stopAnalysisThread = false;
 	bool analysisPaused = true;
+	bool asyncPathActive = false;
+	bool resetAsyncAnalysis = false;
 	bool captureRequested = false;
 	bool hasPendingFrame = false;
 	bool workerBusy = false;
