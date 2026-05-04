@@ -7,7 +7,7 @@
 #include <mutex>
 
 #include <graphics/graphics.h>
-#include <obs-source.h>
+#include <obs-module.h>
 
 class FilterFrameCapture {
 public:

@@ -10,11 +10,13 @@
 #include "plugin-support.h"
 #include "graph_source.h"
 #include "graph_source_info.h"
-#include "heart_rate_source.h"
 #include "plugin_config.h"
+#include "source_names.h"
 
 #define LINE_THICKNESS 3.0f
 #define UPDATE_FREQUENCY 15
+
+static void drawGraph(struct graph_source *graphSource, int curHeartRate, bool ecg);
 
 // Destroy function for graph source
 void destroyGraphSource(void *data)

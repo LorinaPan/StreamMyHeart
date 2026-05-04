@@ -4,6 +4,7 @@
 #include "core/heart_rate_pipeline.h"
 #include "display_scene.h"
 #include "heart_rate_source.h"
+#include "obs_utils.h"
 #include "plugin-support.h"
 #include "plugin_config.h"
 

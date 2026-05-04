@@ -3,6 +3,7 @@
 #include "heart_rate_source.h"
 #include "obs_utils.h"
 #include "plugin-support.h"
+#include "source_names.h"
 
 #include <obs-data.h>
 #include <obs-frontend-api.h>

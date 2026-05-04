@@ -5,7 +5,6 @@
 #include <obs-data.h>
 #include "plugin-support.h"
 #include "obs_utils.h"
-#include "heart_rate_source.h"
 
 void removeSource(const char *source_name)
 {

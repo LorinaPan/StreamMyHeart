@@ -3,6 +3,7 @@
 
 #include <obs-module.h>
 #include "core/frame_data.h"
+#include "source_names.h"
 
 #ifdef __cplusplus
 #include <condition_variable>
@@ -21,13 +22,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#define MONITOR_SOURCE_NAME obs_module_text("HeartRateMonitor")
-#define TEXT_SOURCE_NAME obs_module_text("HeartRateDisplay")
-#define GRAPH_SOURCE_NAME obs_module_text("HeartRateGraph")
-#define IMAGE_SOURCE_NAME obs_module_text("HeartRateIcon")
-#define MOOD_SOURCE_NAME obs_module_text("HeartRateMood")
-#define ECG_SOURCE_NAME obs_module_text("HeartRateECG")
 
 extern bool enableTiming;
 

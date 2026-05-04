@@ -2,15 +2,14 @@
 #define FACE_DETECTION_H
 
 #include "../../core/frame_data.h"
+#include "face_detection_types.h"
 
-#include <vector>
+#include <graphics/vec4.h>
 #include <dlib/image_processing.h>
 #include <dlib/image_processing/frontal_face_detector.h>
-#include <dlib/image_processing/render_face_detections.h>
 #include <dlib/image_processing/shape_predictor.h>
 #include <dlib/opencv.h>
-
-enum class FaceDetectionAlgorithm { HAAR_CASCADE, DLIB };
+#include <vector>
 
 class FaceDetection {
 public:

@@ -3,11 +3,11 @@
 #include <dlib/image_processing/frontal_face_detector.h>
 #include <dlib/image_processing.h>
 #include <dlib/image_processing/correlation_tracker.h>
+#include <obs-module.h>
 
 #include <chrono>
 #include <cstdint>
 
-#include "heart_rate_source.h"
 #include "opencv_dlib_68_landmarks_face_tracker.h"
 #include "plugin-support.h"
 

@@ -1,7 +1,7 @@
 #ifndef STREAM_MY_HEART_PLUGIN_CONFIG_H
 #define STREAM_MY_HEART_PLUGIN_CONFIG_H
 
-#include "algorithm/face_detection/face_detection.h"
+#include "algorithm/face_detection/face_detection_types.h"
 #include "core/heart_rate_pipeline.h"
 
 #include <obs-data.h>

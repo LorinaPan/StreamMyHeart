@@ -2,7 +2,6 @@
 #include "filtering/pre_filters.h"
 #include "filtering/post_filters.h"
 
-#include <obs-module.h>
 #include <cmath>
 #include <util/platform.h>
 
@@ -10,6 +9,19 @@ using namespace std;
 using namespace Eigen;
 using Windows = vector<vector<vector<double_t>>>;
 using Window = vector<vector<double_t>>;
+
+namespace {
+
+bool coreTimingEnabled()
+{
+	return false;
+}
+
+void logCoreTiming(const char *, uint64_t)
+{
+}
+
+} // namespace
 
 vector<double_t> green(Window windowsRGB)
 {
@@ -235,7 +247,7 @@ double MovingAvg::calculateHeartRate(vector<double_t> avg, int preFilter, int pp
 				     int sampleRate)
 {
 	uint64_t start_heart_rate;
-	if (enableTiming) {
+	if (coreTimingEnabled()) {
 		start_heart_rate = os_gettime_ns();
 	}
 
@@ -252,17 +264,17 @@ double MovingAvg::calculateHeartRate(vector<double_t> avg, int preFilter, int pp
 		Window currentWindow = concatWindows(windows);
 
 		uint64_t start_pre_filter, end_pre_filter;
-		if (enableTiming) {
+		if (coreTimingEnabled()) {
 			start_pre_filter = os_gettime_ns();
 		}
 		Window filteredWindow = applyPreFilter(currentWindow, preFilter, fps);
-		if (enableTiming) {
+		if (coreTimingEnabled()) {
 			end_pre_filter = os_gettime_ns();
-			obs_log(LOG_INFO, "Pre-filtering took: %lu ns", end_pre_filter - start_pre_filter);
+			logCoreTiming("Pre-filtering", end_pre_filter - start_pre_filter);
 		}
 
 		uint64_t start_ppg, end_ppg;
-		if (enableTiming) {
+		if (coreTimingEnabled()) {
 			start_ppg = os_gettime_ns();
 		}
 		switch (ppg) {
@@ -278,34 +290,34 @@ double MovingAvg::calculateHeartRate(vector<double_t> avg, int preFilter, int pp
 		default:
 			break;
 		}
-		if (enableTiming) {
+		if (coreTimingEnabled()) {
 			end_ppg = os_gettime_ns();
-			obs_log(LOG_INFO, "PPG calculation took: %lu ns", end_ppg - start_ppg);
+			logCoreTiming("PPG calculation", end_ppg - start_ppg);
 		}
 
 		uint64_t start_post_filter, end_post_filter;
-		if (enableTiming) {
+		if (coreTimingEnabled()) {
 			start_post_filter = os_gettime_ns();
 		}
 		vector<double_t> filtered_ppg = applyPostFilter(ppgSignal, postFilter, fps);
-		if (enableTiming) {
+		if (coreTimingEnabled()) {
 			end_post_filter = os_gettime_ns();
-			obs_log(LOG_INFO, "Post-filtering took: %lu ns", end_post_filter - start_post_filter);
+			logCoreTiming("Post-filtering", end_post_filter - start_post_filter);
 		}
 
 		uint64_t start_welch, end_welch;
-		if (enableTiming) {
+		if (coreTimingEnabled()) {
 			start_welch = os_gettime_ns();
 		}
 		double heartRate = welch(filtered_ppg);
-		if (enableTiming) {
+		if (coreTimingEnabled()) {
 			end_welch = os_gettime_ns();
-			obs_log(LOG_INFO, "Welch took: %lu ns", end_welch - start_welch);
+			logCoreTiming("Welch", end_welch - start_welch);
 		}
 
 		if (smooth) {
 			uint64_t start_smooth, end_smooth;
-			if (enableTiming) {
+			if (coreTimingEnabled()) {
 				start_smooth = os_gettime_ns();
 			}
 			if (static_cast<int>(heartRates.size()) < numHeartRates) {
@@ -313,9 +325,9 @@ double MovingAvg::calculateHeartRate(vector<double_t> avg, int preFilter, int pp
 			} else {
 				heartRate = smoothHeartRate(heartRate);
 			}
-			if (enableTiming) {
+			if (coreTimingEnabled()) {
 				end_smooth = os_gettime_ns();
-				obs_log(LOG_INFO, "Smoothing took: %lu ns", end_smooth - start_smooth);
+				logCoreTiming("Smoothing", end_smooth - start_smooth);
 			}
 		}
 
@@ -329,9 +341,9 @@ double MovingAvg::calculateHeartRate(vector<double_t> avg, int preFilter, int pp
 			}
 		}
 
-		if (enableTiming) {
+		if (coreTimingEnabled()) {
 			uint64_t end_heart_rate = os_gettime_ns();
-			obs_log(LOG_INFO, "Heart rate calculation took: %lu ns", end_heart_rate - start_heart_rate);
+			logCoreTiming("Heart rate calculation", end_heart_rate - start_heart_rate);
 		}
 
 		return uiHeartRate;
@@ -347,9 +359,9 @@ double MovingAvg::calculateHeartRate(vector<double_t> avg, int preFilter, int pp
 			uiHeartRate += uiUpdateAmount;
 		}
 
-		if (enableTiming) {
+		if (coreTimingEnabled()) {
 			uint64_t end_heart_rate = os_gettime_ns();
-			obs_log(LOG_INFO, "Heart rate update took: %lu ns", end_heart_rate - start_heart_rate);
+			logCoreTiming("Heart rate update", end_heart_rate - start_heart_rate);
 		}
 
 		return uiHeartRate;
