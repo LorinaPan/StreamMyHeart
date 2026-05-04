@@ -86,6 +86,10 @@ Use the shipped CMake presets for your platform:
 
 Set `-DBUILD_EVALUATION=ON` during configure if you also want the offline evaluation target.
 
+macOS note:
+- if your machine only has Intel Homebrew OpenCV under `/usr/local`, the `macos` preset now falls back to an `x86_64` plugin build automatically so Xcode does not try to link `arm64` against x86_64-only OpenCV dylibs
+- if you have Apple Silicon Homebrew OpenCV under `/opt/homebrew`, the preset keeps the normal universal configuration
+
 ### Verify Experimental Async Analysis
 
 1. Build with `ENABLE_DEBUG_FEATURES=ON`.

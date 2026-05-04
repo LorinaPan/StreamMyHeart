@@ -223,5 +223,11 @@ function(_check_dependencies)
 
   set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} CACHE PATH "CMake prefix search path" FORCE)
 
+  if(EXISTS "${dependencies_dir}/Frameworks/libobs.framework/Versions/A/Resources/cmake/libobsConfig.cmake"
+     AND EXISTS "${dependencies_dir}/lib/cmake/obs-frontend-api/obs-frontend-apiConfig.cmake")
+    message(STATUS "Using prebuilt OBS development packages from ${dependencies_dir}")
+    return()
+  endif()
+
   _setup_obs_studio()
 endfunction()

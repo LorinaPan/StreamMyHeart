@@ -14,6 +14,13 @@ option(ENABLE_DEBUG_FEATURES "Enable debug instrumentation and experimental togg
 option(BUILD_OBS_PLUGIN "Build as OBS plugin" ON)
 option(BUILD_EVALUATION "Build the offline evaluation tool" OFF)
 
+if(APPLE AND CMAKE_GENERATOR STREQUAL "Xcode")
+  if(EXISTS "/usr/local/lib/libopencv_core.4.11.0.dylib" AND NOT EXISTS "/opt/homebrew/lib/libopencv_core.4.11.0.dylib")
+    message(STATUS "Only x86_64 Homebrew OpenCV detected; forcing macOS build to x86_64.")
+    set(CMAKE_OSX_ARCHITECTURES "x86_64" CACHE STRING "macOS target architectures" FORCE)
+  endif()
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -114,40 +121,24 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "Apple
 endif()
 
 if(UNIX)
-  include_directories(${CMAKE_SOURCE_DIR}/3rdparty/dlib)
-  link_directories(${CMAKE_SOURCE_DIR}/3rdparty/dlib/build)
-
   # Set paths for Dlib
   set(DLIB_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/3rdparty/dlib-19.24.6)
-  set(DLIB_LIB_DIR ${CMAKE_SOURCE_DIR}/3rdparty/dlib-19.24.6/build/dlib)
+  set(DLIB_ALL_SOURCE ${DLIB_INCLUDE_DIR}/dlib/all/source.cpp)
 
   if(NOT EXISTS "${DLIB_INCLUDE_DIR}/dlib/image_processing.h")
     message(FATAL_ERROR "Missing Dlib headers in ${DLIB_INCLUDE_DIR}. Run: git submodule update --init --recursive")
   endif()
 
-  if(NOT EXISTS "${DLIB_LIB_DIR}/libdlib.a")
-    message(FATAL_ERROR "Missing Dlib static library in ${DLIB_LIB_DIR}. Build or fetch the Dlib dependency artifacts after initializing submodules.")
+  if(NOT EXISTS "${DLIB_ALL_SOURCE}")
+    message(FATAL_ERROR "Missing Dlib all/source.cpp in ${DLIB_ALL_SOURCE}. Check the Dlib submodule contents.")
   endif()
 
-  # Include Dlib headers
-  include_directories(${DLIB_INCLUDE_DIR})
-
-  # Link against the static Dlib library
-  add_library(libdlib STATIC IMPORTED)
-  set_target_properties(libdlib PROPERTIES IMPORTED_LOCATION ${DLIB_LIB_DIR}/libdlib.a)
-
-  target_link_libraries(streammyheart_core PUBLIC ${DLIB_LIB_DIR}/libdlib.a)
-  # set(dlib_STATIC ON)
-  # set(dlib_DIR ${CMAKE_SOURCE_DIR}/binary/dlib-19.24.6-macos/lib/cmake/dlib)
-  # find_package(dlib CONFIG REQUIRED)
-  # if(dlib_FOUND)
-  #   message("dlib_FOUND:${dlib_FOUND}")
-  #   message("dlib_VERSION:${dlib_VERSION}")
-  #   message("dlib_INCLUDE_DIRS:${dlib_INCLUDE_DIRS}")
-  #   message("dlib_LIBRARIES:${dlib_LIBRARIES}")
-  # endif()
-
-  # target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE dlib::dlib)
+  target_include_directories(streammyheart_core SYSTEM PUBLIC ${DLIB_INCLUDE_DIR})
+  target_compile_definitions(
+    streammyheart_core
+    PUBLIC
+      DLIB_NO_GUI_SUPPORT
+  )
 elseif(WIN32)
   set(dlib_STATIC ON)
   set(dlib_DIR ${CMAKE_SOURCE_DIR}/3rdparty/dlib-19.24.6/install/lib/cmake/dlib)
@@ -184,6 +175,8 @@ endif()
 target_sources(
   streammyheart_core
   PRIVATE
+    3rdparty/dlib-19.24.6/dlib/all/source.cpp
+    3rdparty/dlib-19.24.6/dlib/fft/fft.cpp
     src/algorithm/heart_rate_algorithm.cpp
     src/algorithm/face_detection/face_detection.cpp
     src/algorithm/face_detection/opencv_haarcascade.cpp
@@ -194,9 +187,15 @@ target_sources(
     src/algorithm/filtering/filter_util.cpp
 )
 
+set_source_files_properties(
+  3rdparty/dlib-19.24.6/dlib/all/source.cpp
+  PROPERTIES COMPILE_OPTIONS "-Wno-sign-compare"
+)
+
 target_sources(
   ${CMAKE_PROJECT_NAME}
   PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}/plugin-support.c
     src/obs/display/graph_render_model.cpp
     src/obs/display/graph_source.cpp
     src/obs/display/graph_source_info.c
