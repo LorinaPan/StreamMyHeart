@@ -66,6 +66,12 @@ StreamMyHeart supports the latest OBS version 31.0.1.
 
 ### Build
 
+Before configuring, fetch the vendored dependencies:
+
+```bash
+git submodule update --init --recursive
+```
+
 Use the shipped CMake presets for your platform:
 
 - macOS:
