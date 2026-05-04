@@ -53,6 +53,18 @@
       }
     },
     {
+      "name": "macos-debug",
+      "displayName": "macOS Debug",
+      "description": "Build for macOS 11.0+ using Xcode with Debug configuration",
+      "inherits": [
+        "macos"
+      ],
+      "binaryDir": "${sourceDir}/build_macos_debug",
+      "cacheVariables": {
+        "ENABLE_DEBUG_FEATURES": true
+      }
+    },
+    {
       "name": "windows-x64",
       "displayName": "Windows x64",
       "description": "Build for Windows x64",
@@ -124,6 +136,13 @@
       "displayName": "macOS Universal CI",
       "description": "macOS CI build for Universal architectures",
       "configuration": "RelWithDebInfo"
+    },
+    {
+      "name": "macos-debug",
+      "configurePreset": "macos-debug",
+      "displayName": "macOS Debug",
+      "description": "macOS build for Debug configuration",
+      "configuration": "Debug"
     },
     {
       "name": "windows-x64",
