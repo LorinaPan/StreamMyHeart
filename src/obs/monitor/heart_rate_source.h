@@ -48,6 +48,8 @@ struct AnalysisResultSnapshot {
 	std::string heartRateText;
 	std::string moodText;
 	std::vector<struct vec4> faceCoordinates;
+	uint32_t frameWidth = 0;
+	uint32_t frameHeight = 0;
 	uint64_t sourceFrameTimestampNs = 0;
 	uint64_t publishedTimestampNs = 0;
 	uint64_t frameId = 0;

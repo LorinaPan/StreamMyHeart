@@ -27,6 +27,7 @@ namespace {
 constexpr uint64_t kAnalysisCadenceNs = 1000000000ULL / 15ULL;
 constexpr uint64_t kNoFaceGracePeriodNs = 750000000ULL;
 constexpr int kAsyncRedetectIntervalFrames = 11;
+constexpr int kAsyncAnalysisFps = 15;
 
 std::string getMood(int heart_rate);
 
@@ -137,12 +138,16 @@ void analysisWorkerLoop(struct heartRateSource *hrs)
 
 		AnalysisResultSnapshot snapshot;
 		snapshot.faceCoordinates = faceCoordinates;
+		snapshot.frameWidth = frame.width;
+		snapshot.frameHeight = frame.height;
 		snapshot.sourceFrameTimestampNs = frame.captureTimestampNs;
 		snapshot.publishedTimestampNs = faceDetectionEndNs;
 		snapshot.frameId = frame.frameId;
 
 		if (hasFaceSample(avg)) {
-			double heartRate = hrs->asyncPipeline.update(avg, config.pipeline);
+			HeartRatePipelineConfig pipelineConfig = config.pipeline;
+			pipelineConfig.fps = kAsyncAnalysisFps;
+			double heartRate = hrs->asyncPipeline.update(avg, pipelineConfig);
 			if (heartRate > 0.0) {
 				int roundedHeartRate = static_cast<int>(std::round(heartRate));
 				snapshot.state = AnalysisSnapshotState::Ready;
@@ -731,7 +736,32 @@ void heartRateSourceRender(void *data, gs_effect_t *effect)
 		AnalysisResultSnapshot snapshot = readAnalysisSnapshot(hrs);
 		applyAsyncSnapshot(hrsSettings, snapshot);
 		obs_data_release(hrsSettings);
-		skipVideoFilterIfSafe(hrs->source);
+
+		if (config.faceDetection.enableDebugBoxes && snapshot.frameWidth > 0 && snapshot.frameHeight > 0 &&
+		    !snapshot.faceCoordinates.empty()) {
+			gs_texture_t *testingTexture =
+				drawRectangle(hrs, snapshot.frameWidth, snapshot.frameHeight, snapshot.faceCoordinates);
+
+			if (!obs_source_process_filter_begin(hrs->source, GS_BGRA, OBS_ALLOW_DIRECT_RENDERING)) {
+				skipVideoFilterIfSafe(hrs->source);
+				gs_texture_destroy(testingTexture);
+				return;
+			}
+			gs_effect_set_texture(gs_effect_get_param_by_name(hrs->testing, "image"), testingTexture);
+
+			gs_blend_state_push();
+			gs_reset_blend_state();
+
+			if (hrs->source) {
+				obs_source_process_filter_tech_end(hrs->source, hrs->testing, snapshot.frameWidth,
+								   snapshot.frameHeight, "Draw");
+			}
+
+			gs_blend_state_pop();
+			gs_texture_destroy(testingTexture);
+		} else {
+			skipVideoFilterIfSafe(hrs->source);
+		}
 #ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
 		recordPerfSampleForField(hrs, &MonitorPerfStats::render, os_gettime_ns() - renderStartNs);
 		maybeLogPerfStats(hrs, config);
