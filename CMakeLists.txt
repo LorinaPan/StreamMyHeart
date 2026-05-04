@@ -121,6 +121,14 @@ if(UNIX)
   set(DLIB_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/3rdparty/dlib-19.24.6)
   set(DLIB_LIB_DIR ${CMAKE_SOURCE_DIR}/3rdparty/dlib-19.24.6/build/dlib)
 
+  if(NOT EXISTS "${DLIB_INCLUDE_DIR}/dlib/image_processing.h")
+    message(FATAL_ERROR "Missing Dlib headers in ${DLIB_INCLUDE_DIR}. Run: git submodule update --init --recursive")
+  endif()
+
+  if(NOT EXISTS "${DLIB_LIB_DIR}/libdlib.a")
+    message(FATAL_ERROR "Missing Dlib static library in ${DLIB_LIB_DIR}. Build or fetch the Dlib dependency artifacts after initializing submodules.")
+  endif()
+
   # Include Dlib headers
   include_directories(${DLIB_INCLUDE_DIR})
 
