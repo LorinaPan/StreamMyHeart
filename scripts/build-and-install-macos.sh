@@ -12,12 +12,13 @@ BUILD_DIR="${REPO_ROOT}/build_macos"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/build-and-install-macos.sh [--debug] [--preset <name>] [--skip-configure]
+Usage: scripts/build-and-install-macos.sh [--dev] [--debug] [--preset <name>] [--skip-configure]
 
 Builds the macOS OBS plugin and installs it into:
   ~/Library/Application Support/obs-studio/plugins
 
 Options:
+  --dev             Use the `macos-dev` preset (RelWithDebInfo + debug features)
   --debug           Use the `macos-debug` preset and Debug config
   --preset <name>   Override the CMake preset explicitly
   --skip-configure  Skip the configure step and only build/install
@@ -29,6 +30,12 @@ SKIP_CONFIGURE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --dev)
+      PRESET="macos-dev"
+      CONFIG="RelWithDebInfo"
+      BUILD_DIR="${REPO_ROOT}/build_macos_dev"
+      shift
+      ;;
     --debug)
       PRESET="macos-debug"
       CONFIG="Debug"
@@ -46,12 +53,16 @@ while [[ $# -gt 0 ]]; do
           CONFIG="RelWithDebInfo"
           BUILD_DIR="${REPO_ROOT}/build_macos"
           ;;
+        macos-dev)
+          CONFIG="RelWithDebInfo"
+          BUILD_DIR="${REPO_ROOT}/build_macos_dev"
+          ;;
         macos-debug)
           CONFIG="Debug"
           BUILD_DIR="${REPO_ROOT}/build_macos_debug"
           ;;
         *)
-          echo "Unsupported preset '${PRESET}'. Expected 'macos' or 'macos-debug'." >&2
+          echo "Unsupported preset '${PRESET}'. Expected 'macos', 'macos-dev', or 'macos-debug'." >&2
           exit 1
           ;;
       esac

@@ -126,11 +126,19 @@ To build and install the plugin into your OBS user plugins folder in one step:
 scripts/build-and-install-macos.sh
 ```
 
+For verification work where you want optimized behavior but still need async/perf debug features:
+
+```bash
+scripts/build-and-install-macos.sh --dev
+```
+
 For the debug preset instead:
 
 ```bash
 scripts/build-and-install-macos.sh --debug
 ```
+
+Use `--debug` only for deeper debugging. It is not the right mode for performance or calibration verification because Dlib becomes much slower in a full Debug build.
 
 Perf logs are emitted once per second and include render, capture, detect, and pipeline timing summaries.
 

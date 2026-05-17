@@ -65,6 +65,18 @@
       }
     },
     {
+      "name": "macos-dev",
+      "displayName": "macOS Dev",
+      "description": "Build for macOS 11.0+ using Xcode with RelWithDebInfo and debug features enabled",
+      "inherits": [
+        "macos"
+      ],
+      "binaryDir": "${sourceDir}/build_macos_dev",
+      "cacheVariables": {
+        "ENABLE_DEBUG_FEATURES": true
+      }
+    },
+    {
       "name": "windows-x64",
       "displayName": "Windows x64",
       "description": "Build for Windows x64",
@@ -143,6 +155,13 @@
       "displayName": "macOS Debug",
       "description": "macOS build for Debug configuration",
       "configuration": "Debug"
+    },
+    {
+      "name": "macos-dev",
+      "configurePreset": "macos-dev",
+      "displayName": "macOS Dev",
+      "description": "macOS build for RelWithDebInfo with debug features enabled",
+      "configuration": "RelWithDebInfo"
     },
     {
       "name": "windows-x64",
