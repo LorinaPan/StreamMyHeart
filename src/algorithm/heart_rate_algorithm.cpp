@@ -12,6 +12,9 @@ using Window = vector<vector<double_t>>;
 
 namespace {
 
+constexpr double kMinHeartRateBpm = 55.0;
+constexpr double kMaxHeartRateBpm = 200.0;
+
 bool coreTimingEnabled()
 {
 	return false;
@@ -19,6 +22,11 @@ bool coreTimingEnabled()
 
 void logCoreTiming(const char *, uint64_t)
 {
+}
+
+bool isValidHeartRateEstimate(double heartRate)
+{
+	return std::isfinite(heartRate) && heartRate >= kMinHeartRateBpm && heartRate <= kMaxHeartRateBpm;
 }
 
 } // namespace
@@ -315,6 +323,14 @@ double MovingAvg::calculateHeartRate(vector<double_t> avg, int preFilter, int pp
 			logCoreTiming("Welch", end_welch - start_welch);
 		}
 
+		if (!isValidHeartRateEstimate(heartRate)) {
+			if (coreTimingEnabled()) {
+				uint64_t end_heart_rate = os_gettime_ns();
+				logCoreTiming("Heart rate calculation", end_heart_rate - start_heart_rate);
+			}
+			return uiHeartRate;
+		}
+
 		if (smooth) {
 			uint64_t start_smooth, end_smooth;
 			if (coreTimingEnabled()) {
@@ -338,6 +354,7 @@ double MovingAvg::calculateHeartRate(vector<double_t> avg, int preFilter, int pp
 			if (heartRates.size() >= 2 && heartRates[heartRates.size() - 2] - heartRate <= 30) {
 				uiUpdateAmount = min((heartRate - uiHeartRate) / NUM_UPDATES, 5.0);
 				prevHr = heartRate;
+				framesSincePPG = 0;
 			}
 		}
 
@@ -357,6 +374,10 @@ double MovingAvg::calculateHeartRate(vector<double_t> avg, int preFilter, int pp
 
 		if (!heartRates.empty() && framesSincePPG % uiUpdateInterval == 0 && uiHeartRate != prevHr) {
 			uiHeartRate += uiUpdateAmount;
+			if ((uiUpdateAmount > 0.0 && uiHeartRate > prevHr) ||
+			    (uiUpdateAmount < 0.0 && uiHeartRate < prevHr)) {
+				uiHeartRate = prevHr;
+			}
 		}
 
 		if (coreTimingEnabled()) {
