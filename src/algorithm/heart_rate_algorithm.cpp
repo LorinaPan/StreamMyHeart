@@ -333,17 +333,25 @@ double MovingAvg::calculateHeartRate(vector<double_t> avg, int preFilter, int pp
 
 		if (smooth) {
 			uint64_t start_smooth, end_smooth;
+			bool warmupComplete = true;
 			if (coreTimingEnabled()) {
 				start_smooth = os_gettime_ns();
 			}
 			if (static_cast<int>(heartRates.size()) < numHeartRates) {
 				heartRates.push_back(heartRate);
+				warmupComplete = static_cast<int>(heartRates.size()) >= numHeartRates;
+				if (warmupComplete) {
+					heartRate = accumulate(heartRates.begin(), heartRates.end(), 0.0) / heartRates.size();
+				}
 			} else {
 				heartRate = smoothHeartRate(heartRate);
 			}
 			if (coreTimingEnabled()) {
 				end_smooth = os_gettime_ns();
 				logCoreTiming("Smoothing", end_smooth - start_smooth);
+			}
+			if (!warmupComplete) {
+				return -1.0;
 			}
 		}
 
