@@ -74,6 +74,7 @@ void applyMonitorDefaults(obs_data_t *settings)
 {
 	obs_data_set_default_int(settings, kFps, 30);
 	obs_data_set_default_int(settings, kFaceDetectionAlgorithm, 1);
+	obs_data_set_default_bool(settings, kFaceDetectionDebugBoxes, true);
 	obs_data_set_default_bool(settings, kEnableFaceTracking, true);
 	obs_data_set_default_int(settings, kFrameUpdateInterval, 60);
 	obs_data_set_default_int(settings, kPpgAlgorithm, 2);
@@ -93,8 +94,13 @@ void applyMonitorDefaults(obs_data_t *settings)
 	obs_data_set_default_bool(settings, kPostFiltering, true);
 	obs_data_set_default_bool(settings, kIsDisabled, false);
 	obs_data_set_default_int(settings, kHeartRateGraphSize, 10);
+#ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
+	obs_data_set_default_bool(settings, kEnablePerfInstrumentation, true);
+	obs_data_set_default_bool(settings, kEnableExperimentalAsyncAnalysis, true);
+#else
 	obs_data_set_default_bool(settings, kEnablePerfInstrumentation, false);
 	obs_data_set_default_bool(settings, kEnableExperimentalAsyncAnalysis, false);
+#endif
 }
 
 void updateDisplayPropertyVisibility(obs_properties_t *props, const DisplaySceneConfig &config)

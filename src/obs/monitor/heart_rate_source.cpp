@@ -292,11 +292,27 @@ void maybeLogPerfStats(struct heartRateSource *hrs, const MonitorRuntimeConfig &
 	double resultAgeMs = analysisSnapshot.sourceFrameTimestampNs == 0
 				     ? 0.0
 				     : toMilliseconds(nowNs - analysisSnapshot.sourceFrameTimestampNs);
+	const char *state = "idle";
+	switch (analysisSnapshot.state) {
+	case AnalysisSnapshotState::Idle:
+		state = "idle";
+		break;
+	case AnalysisSnapshotState::Calibrating:
+		state = "calibrating";
+		break;
+	case AnalysisSnapshotState::NoFace:
+		state = "no_face";
+		break;
+	case AnalysisSnapshotState::Ready:
+		state = "ready";
+		break;
+	}
 	obs_log(LOG_INFO,
 		"[perf] render avg=%.3f ms max=%.3f ms samples=%llu | capture avg=%.3f ms max=%.3f ms "
 		"samples=%llu | detect avg=%.3f ms max=%.3f ms samples=%llu | pipeline avg=%.3f ms "
 		"max=%.3f ms samples=%llu | render_hz=%.2f | analysis_hz=%.2f | result_age=%.3f ms | "
-		"worker_busy=%.2f | dropped=%llu | no_face=%llu",
+		"worker_busy=%.2f | dropped=%llu | no_face=%llu | state=%s | hr=%d | face_boxes=%zu | "
+		"async_analysis_fps=%d",
 		toMilliseconds(averageNs(statsSnapshot.render)), toMilliseconds(statsSnapshot.render.maxNs),
 		static_cast<unsigned long long>(statsSnapshot.render.sampleCount),
 		toMilliseconds(averageNs(statsSnapshot.capture)), toMilliseconds(statsSnapshot.capture.maxNs),
@@ -307,7 +323,8 @@ void maybeLogPerfStats(struct heartRateSource *hrs, const MonitorRuntimeConfig &
 		toMilliseconds(averageNs(statsSnapshot.pipeline)), toMilliseconds(statsSnapshot.pipeline.maxNs),
 		static_cast<unsigned long long>(statsSnapshot.pipeline.sampleCount), renderHz, analysisHz,
 		resultAgeMs, workerBusyRatio, static_cast<unsigned long long>(statsSnapshot.droppedFrameCount),
-		static_cast<unsigned long long>(statsSnapshot.noFaceCount));
+		static_cast<unsigned long long>(statsSnapshot.noFaceCount), state, analysisSnapshot.heartRate,
+		analysisSnapshot.faceCoordinates.size(), kAsyncAnalysisFps);
 }
 } // namespace
 #endif

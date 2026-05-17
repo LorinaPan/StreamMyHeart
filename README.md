@@ -94,12 +94,20 @@ macOS note:
 
 1. Build with `ENABLE_DEBUG_FEATURES=ON`.
 2. In OBS, add the `Heart Rate Monitor` filter to a camera source.
-3. In filter settings, choose the `Dlib` face detection algorithm.
-4. Enable:
+3. In filter settings, use these test settings:
+   - `Dlib` face detection algorithm
+   - `Enable face tracking` on
+   - `Face detection debug boxes` on
+   - `PPG Algorithm = Chrom`
+   - `Pre-filtering method = Zero Mean`
+   - `Post Filtering` on
+   - `FPS = 30`
+4. In debug-feature builds, these now default on for easier async testing:
    - `Enable experimental async analysis`
    - `Enable perf instrumentation`
 5. Open `View -> Stats` in OBS.
 6. Compare OBS smoothness and plugin logs with the async setting off vs on.
+7. On macOS, OBS logs are under `~/Library/Application Support/obs-studio/logs/`. Search for lines starting with `[perf]`.
 
 Healthy async behavior should look like:
 
@@ -108,6 +116,7 @@ Healthy async behavior should look like:
 - `result_age` stays bounded instead of growing without limit.
 - `dropped` may increase under load, but should not explode continuously.
 - `worker_busy` should stay well below `1.0` in stable scenes.
+- `state=ready`, a sensible `hr`, and non-zero `face_boxes` when the debug boxes are visible.
 
 Perf logs are emitted once per second and include render, capture, detect, and pipeline timing summaries.
 
