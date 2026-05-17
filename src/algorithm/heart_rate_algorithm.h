@@ -24,6 +24,7 @@ private:
 
 	std::vector<double_t> heartRates;
 	int numHeartRates = 8;
+	int startupWarmupHeartRates = 4;
 
 	double uiHeartRate = -1.0;
 	int uiUpdateInterval;

@@ -339,7 +339,7 @@ double MovingAvg::calculateHeartRate(vector<double_t> avg, int preFilter, int pp
 			}
 			if (static_cast<int>(heartRates.size()) < numHeartRates) {
 				heartRates.push_back(heartRate);
-				warmupComplete = static_cast<int>(heartRates.size()) >= numHeartRates;
+				warmupComplete = static_cast<int>(heartRates.size()) >= startupWarmupHeartRates;
 				if (warmupComplete) {
 					heartRate = accumulate(heartRates.begin(), heartRates.end(), 0.0) / heartRates.size();
 				}
