@@ -118,6 +118,20 @@ Healthy async behavior should look like:
 - `worker_busy` should stay well below `1.0` in stable scenes.
 - `state=ready`, a sensible `hr`, and non-zero `face_boxes` when the debug boxes are visible.
 
+### macOS Build + Install Helper
+
+To build and install the plugin into your OBS user plugins folder in one step:
+
+```bash
+scripts/build-and-install-macos.sh
+```
+
+For the debug preset instead:
+
+```bash
+scripts/build-and-install-macos.sh --debug
+```
+
 Perf logs are emitted once per second and include render, capture, detect, and pipeline timing summaries.
 
 ## Support and Feedback
