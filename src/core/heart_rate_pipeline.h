@@ -26,6 +26,7 @@ enum class PostFilteringMethod {
 
 struct HeartRatePipelineConfig {
 	int fps = 30;
+	int sampleWindowSeconds = 1;
 	PreFilteringMethod preFiltering = PreFilteringMethod::ZERO_MEAN;
 	PpgAlgorithmMethod ppgAlgorithm = PpgAlgorithmMethod::CHROM;
 	PostFilteringMethod postFiltering = PostFilteringMethod::BANDPASS;

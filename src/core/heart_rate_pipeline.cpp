@@ -12,7 +12,8 @@ double HeartRatePipeline::update(const std::vector<double_t> &averageRgb, const 
 
 	return estimator_.calculateHeartRate(averageRgb, static_cast<int>(config.preFiltering),
 					     static_cast<int>(config.ppgAlgorithm),
-					     static_cast<int>(config.postFiltering), true, config.fps);
+					     static_cast<int>(config.postFiltering), true, config.fps,
+					     config.sampleWindowSeconds);
 }
 
 void HeartRatePipeline::reset()
