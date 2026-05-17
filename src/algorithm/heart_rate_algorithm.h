@@ -30,7 +30,7 @@ private:
 	int uiUpdateInterval;
 	double uiUpdateAmount = 0.0;
 	int framesSincePPG = 0;
-	int NUM_UPDATES = 10;
+	int NUM_UPDATES = 5;
 	double prevHr;
 
 	void updateWindows(std::vector<double_t> frameAvg);
