@@ -96,7 +96,7 @@ void applyMonitorDefaults(obs_data_t *settings)
 	obs_data_set_default_int(settings, kHeartRateGraphSize, 10);
 #ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
 	obs_data_set_default_bool(settings, kEnablePerfInstrumentation, true);
-	obs_data_set_default_bool(settings, kEnableExperimentalAsyncAnalysis, true);
+	obs_data_set_default_bool(settings, kEnableExperimentalAsyncAnalysis, false);
 #else
 	obs_data_set_default_bool(settings, kEnablePerfInstrumentation, false);
 	obs_data_set_default_bool(settings, kEnableExperimentalAsyncAnalysis, false);

@@ -90,7 +90,7 @@ macOS note:
 - if your machine only has Intel Homebrew OpenCV under `/usr/local`, the `macos` preset now falls back to an `x86_64` plugin build automatically so Xcode does not try to link `arm64` against x86_64-only OpenCV dylibs
 - if you have Apple Silicon Homebrew OpenCV under `/opt/homebrew`, the preset keeps the normal universal configuration
 
-### Verify Experimental Async Analysis
+### Verify Heart Rate Behavior
 
 1. Build with `ENABLE_DEBUG_FEATURES=ON`.
 2. In OBS, add the `Heart Rate Monitor` filter to a camera source.
@@ -102,21 +102,21 @@ macOS note:
    - `Pre-filtering method = Zero Mean`
    - `Post Filtering` on
    - `FPS = 30`
-4. In debug-feature builds, these now default on for easier async testing:
-   - `Enable experimental async analysis`
-   - `Enable perf instrumentation`
+4. In debug-feature builds, `Enable perf instrumentation` now defaults on for easier verification.
 5. Open `View -> Stats` in OBS.
-6. Compare OBS smoothness and plugin logs with the async setting off vs on.
-7. On macOS, OBS logs are under `~/Library/Application Support/obs-studio/logs/`. Search for lines starting with `[perf]`.
+6. On macOS, OBS logs are under `~/Library/Application Support/obs-studio/logs/`. Search for lines starting with `[perf]`.
 
-Healthy async behavior should look like:
+Healthy behavior should look like:
 
-- OBS render smoothness improves or at least does not regress.
-- Plugin logs show `analysis_hz` close to `15`.
-- `result_age` stays bounded instead of growing without limit.
-- `dropped` may increase under load, but should not explode continuously.
-- `worker_busy` should stay well below `1.0` in stable scenes.
-- `state=ready`, a sensible `hr`, and non-zero `face_boxes` when the debug boxes are visible.
+- `state=ready` after calibration.
+- a sensible `hr` that stays close to your real pulse.
+- non-zero `face_boxes` when the debug boxes are visible.
+- OBS render smoothness that does not visibly regress.
+
+Note:
+
+- The experimental async Dlib analysis path is currently archived because it reduced heart-rate accuracy.
+- The archive branch is `backup/archive-20260517-async-dlib-experiment`.
 
 ### macOS Build + Install Helper
 

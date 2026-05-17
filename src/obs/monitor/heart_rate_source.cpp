@@ -36,8 +36,8 @@ std::string getMood(int heart_rate);
 
 bool shouldUseAsyncDlib(const MonitorRuntimeConfig &config)
 {
-	return config.enableExperimentalAsyncAnalysis &&
-	       config.faceDetection.algorithm == FaceDetectionAlgorithm::DLIB;
+	UNUSED_PARAMETER(config);
+	return false;
 }
 
 std::string buildHeartRateText(const DisplaySceneConfig &config, int roundedHeartRate)
@@ -483,7 +483,6 @@ static obs_properties_t *algorithmProperties()
 	obs_properties_add_bool(props, "post-filtering", obs_module_text("PostFilteringAlgorithm"));
 #ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
 	obs_properties_add_bool(props, "enable perf instrumentation", "Enable perf instrumentation");
-	obs_properties_add_bool(props, "enable experimental async analysis", "Enable experimental async analysis");
 #endif
 	obs_property_set_modified_callback(dropdown, updateProperties);
 	obs_property_set_modified_callback(enableTracker, updateProperties);
