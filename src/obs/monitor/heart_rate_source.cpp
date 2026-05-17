@@ -28,6 +28,9 @@ constexpr uint64_t kAnalysisCadenceNs = 1000000000ULL / 20ULL;
 constexpr uint64_t kNoFaceGracePeriodNs = 750000000ULL;
 constexpr int kAsyncRedetectIntervalFrames = 15;
 constexpr int kAsyncAnalysisFps = 20;
+constexpr double kAsyncFpsSmoothing = 0.2;
+constexpr double kMinAsyncEffectiveFps = 8.0;
+constexpr double kMaxAsyncEffectiveFps = 20.0;
 
 std::string getMood(int heart_rate);
 
@@ -126,6 +129,8 @@ void analysisWorkerLoop(struct heartRateSource *hrs)
 		if (resetAnalysis || !hrs->asyncFaceDetection) {
 			hrs->asyncPipeline.reset();
 			hrs->asyncFaceDetection = FaceDetection::create(FaceDetectionAlgorithm::DLIB);
+			hrs->lastAsyncFrameTimestampNs = 0;
+			hrs->asyncEffectiveFps = static_cast<double>(kAsyncAnalysisFps);
 		}
 
 		uint64_t analysisStartNs = os_gettime_ns();
@@ -146,7 +151,18 @@ void analysisWorkerLoop(struct heartRateSource *hrs)
 
 		if (hasFaceSample(avg)) {
 			HeartRatePipelineConfig pipelineConfig = config.pipeline;
-			pipelineConfig.fps = kAsyncAnalysisFps;
+			if (hrs->lastAsyncFrameTimestampNs != 0 && frame.captureTimestampNs > hrs->lastAsyncFrameTimestampNs) {
+				double instantFps =
+					1000000000.0 / static_cast<double>(frame.captureTimestampNs - hrs->lastAsyncFrameTimestampNs);
+				instantFps = std::clamp(instantFps, kMinAsyncEffectiveFps, kMaxAsyncEffectiveFps);
+				hrs->asyncEffectiveFps =
+					(hrs->asyncEffectiveFps * (1.0 - kAsyncFpsSmoothing)) +
+					(instantFps * kAsyncFpsSmoothing);
+			} else if (hrs->asyncEffectiveFps <= 0.0) {
+				hrs->asyncEffectiveFps = static_cast<double>(kAsyncAnalysisFps);
+			}
+			hrs->lastAsyncFrameTimestampNs = frame.captureTimestampNs;
+			pipelineConfig.fps = std::max(1, static_cast<int>(std::round(hrs->asyncEffectiveFps)));
 			double heartRate = hrs->asyncPipeline.update(avg, pipelineConfig);
 			if (heartRate > 0.0) {
 				int roundedHeartRate = static_cast<int>(std::round(heartRate));
@@ -190,6 +206,7 @@ void analysisWorkerLoop(struct heartRateSource *hrs)
 			hrs->perfStats.pipeline.maxNs =
 				std::max(hrs->perfStats.pipeline.maxNs, pipelineDurationNs);
 			hrs->perfStats.analysisCount += 1;
+			hrs->perfStats.effectiveAnalysisFps = hrs->asyncEffectiveFps;
 			if (snapshot.state == AnalysisSnapshotState::NoFace) {
 				hrs->perfStats.noFaceCount += 1;
 			}
@@ -235,6 +252,7 @@ void resetPerfStats(MonitorPerfStats &stats)
 	stats.capture = {};
 	stats.faceDetection = {};
 	stats.pipeline = {};
+	stats.effectiveAnalysisFps = 0.0;
 }
 
 void maybeLogPerfStats(struct heartRateSource *hrs, const MonitorRuntimeConfig &config)
@@ -312,7 +330,7 @@ void maybeLogPerfStats(struct heartRateSource *hrs, const MonitorRuntimeConfig &
 		"samples=%llu | detect avg=%.3f ms max=%.3f ms samples=%llu | pipeline avg=%.3f ms "
 		"max=%.3f ms samples=%llu | render_hz=%.2f | analysis_hz=%.2f | result_age=%.3f ms | "
 		"worker_busy=%.2f | dropped=%llu | no_face=%llu | state=%s | hr=%d | face_boxes=%zu | "
-		"async_analysis_fps=%d",
+		"async_analysis_fps=%d | effective_analysis_fps=%.2f",
 		toMilliseconds(averageNs(statsSnapshot.render)), toMilliseconds(statsSnapshot.render.maxNs),
 		static_cast<unsigned long long>(statsSnapshot.render.sampleCount),
 		toMilliseconds(averageNs(statsSnapshot.capture)), toMilliseconds(statsSnapshot.capture.maxNs),
@@ -324,7 +342,7 @@ void maybeLogPerfStats(struct heartRateSource *hrs, const MonitorRuntimeConfig &
 		static_cast<unsigned long long>(statsSnapshot.pipeline.sampleCount), renderHz, analysisHz,
 		resultAgeMs, workerBusyRatio, static_cast<unsigned long long>(statsSnapshot.droppedFrameCount),
 		static_cast<unsigned long long>(statsSnapshot.noFaceCount), state, analysisSnapshot.heartRate,
-		analysisSnapshot.faceCoordinates.size(), kAsyncAnalysisFps);
+		analysisSnapshot.faceCoordinates.size(), kAsyncAnalysisFps, statsSnapshot.effectiveAnalysisFps);
 }
 } // namespace
 #endif

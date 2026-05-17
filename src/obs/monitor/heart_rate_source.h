@@ -74,6 +74,7 @@ struct MonitorPerfStats {
 	PerfAccumulator capture;
 	PerfAccumulator faceDetection;
 	PerfAccumulator pipeline;
+	double effectiveAnalysisFps = 0.0;
 };
 #endif
 #endif
@@ -103,6 +104,8 @@ struct heartRateSource {
 	bool workerBusy = false;
 	uint64_t nextCaptureDueNs = 0;
 	uint64_t nextFrameId = 0;
+	uint64_t lastAsyncFrameTimestampNs = 0;
+	double asyncEffectiveFps = 0.0;
 #ifdef STREAM_MY_HEART_ENABLE_DEBUG_FEATURES
 	MonitorPerfStats perfStats;
 #endif

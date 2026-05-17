@@ -261,7 +261,7 @@ double MovingAvg::calculateHeartRate(vector<double_t> avg, int preFilter, int pp
 
 	fps = Fps;
 	windowSize = sampleRate * fps;
-	uiUpdateInterval = fps / 5;
+	uiUpdateInterval = fps / 4;
 	if (uiUpdateInterval < 1) {
 		uiUpdateInterval = 1;
 	}
